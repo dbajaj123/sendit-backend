@@ -1,0 +1,324 @@
+{
+  "info": {
+    "name": "SenditBox API",
+    "description": "Complete API collection for SenditBox platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000/api",
+      "type": "string"
+    },
+    {
+      "key": "business_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('admin_token', response.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@senditbox.com\",\n  \"password\": \"admin123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/login",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get All Businesses",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/businesses?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "businesses"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "20"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get System Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/admin/stats",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "stats"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Business",
+      "item": [
+        {
+          "name": "Business Register",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessName\": \"Test Coffee Shop\",\n  \"ownerName\": \"John Doe\",\n  \"email\": \"john@coffeeshop.com\",\n  \"password\": \"password123\",\n  \"phone\": \"+1234567890\",\n  \"address\": \"123 Main St\",\n  \"businessType\": \"Restaurant\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/business/register",
+              "host": ["{{base_url}}"],
+              "path": ["business", "register"]
+            }
+          }
+        },
+        {
+          "name": "Business Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('business_token', response.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@coffeeshop.com\",\n  \"password\": \"password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/business/login",
+              "host": ["{{base_url}}"],
+              "path": ["business", "login"]
+            }
+          }
+        },
+        {
+          "name": "Get Business Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{business_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/business/profile",
+              "host": ["{{base_url}}"],
+              "path": ["business", "profile"]
+            }
+          }
+        },
+        {
+          "name": "Get Business Feedback",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{business_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/business/feedback?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["business", "feedback"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "20"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Business Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{business_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/business/stats",
+              "host": ["{{base_url}}"],
+              "path": ["business", "stats"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "QR Codes",
+      "item": [
+        {
+          "name": "Generate QR Code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{business_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"businessId\": \"YOUR_BUSINESS_ID_HERE\",\n  \"location\": \"Front Desk\",\n  \"description\": \"Main entrance QR code\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/qr/generate",
+              "host": ["{{base_url}}"],
+              "path": ["qr", "generate"]
+            }
+          }
+        },
+        {
+          "name": "Get QR Code Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/qr/YOUR_QR_ID_HERE",
+              "host": ["{{base_url}}"],
+              "path": ["qr", "YOUR_QR_ID_HERE"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Feedback",
+      "item": [
+        {
+          "name": "Submit Text Feedback",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qrId\": \"YOUR_QR_ID_HERE\",\n  \"content\": \"Great service! Really enjoyed my visit.\",\n  \"customerName\": \"Jane Smith\",\n  \"rating\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/feedback/text",
+              "host": ["{{base_url}}"],
+              "path": ["feedback", "text"]
+            }
+          }
+        },
+        {
+          "name": "Submit Voice Feedback",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "qrId",
+                  "value": "YOUR_QR_ID_HERE",
+                  "type": "text"
+                },
+                {
+                  "key": "voice",
+                  "type": "file",
+                  "src": ""
+                },
+                {
+                  "key": "customerName",
+                  "value": "Jane Smith",
+                  "type": "text"
+                },
+                {
+                  "key": "rating",
+                  "value": "5",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/feedback/voice",
+              "host": ["{{base_url}}"],
+              "path": ["feedback", "voice"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
