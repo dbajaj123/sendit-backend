@@ -30,23 +30,25 @@ exports.generateQRCode = async (req, res) => {
     // Generate unique QR ID
     const qrId = uuidv4();
 
-    // Create QR code data URL
-    // This URL should point to your customer app with the QR ID
-    const qrData = `${process.env.CUSTOMER_APP_URL || 'https://senditbox.app'}/feedback/${qrId}`;
+    // Create target URL (where customers will open the feedback form)
+    const customerBase = process.env.CUSTOMER_APP_URL || 'https://senditbox.app';
+    const qrData = `${customerBase.replace(/\/$/, '')}/feedback/${qrId}`;
     const qrCodeUrl = await qrcode.toDataURL(qrData);
 
-    // Save QR code to database
+    // Save QR code to database (include targetUrl for clarity)
     const newQRCode = await QRCode.create({
       qrId,
       businessId,
       qrCodeUrl,
+      targetUrl: qrData,
       location: location || 'Main Location',
       description
     });
 
     res.status(201).json({
       success: true,
-      data: newQRCode
+      data: newQRCode,
+      link: qrData
     });
   } catch (error) {
     console.error('Generate QR code error:', error);

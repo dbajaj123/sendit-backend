@@ -17,6 +17,10 @@ const qrCodeSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // The actual target URL encoded in the QR (e.g., https://client.example.com/feedback/<qrId>)
+  targetUrl: {
+    type: String
+  },
   location: {
     type: String,
     trim: true,
