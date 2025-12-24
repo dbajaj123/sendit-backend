@@ -49,8 +49,6 @@ const qrCodeSchema = new mongoose.Schema({
   lastScannedAt: Date
 });
 
-// Index for faster lookups
-qrCodeSchema.index({ qrId: 1 });
 qrCodeSchema.index({ businessId: 1 });
 
 module.exports = mongoose.model('QRCode', qrCodeSchema);
