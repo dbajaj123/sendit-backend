@@ -19,19 +19,34 @@ connectDB();
 
 // Middleware
 // Configure CORS to support comma-separated origins in CORS_ORIGIN env
+// Example: CORS_ORIGIN=https://client.example.com,https://admin.example.com,http://localhost:3000
 const rawOrigins = process.env.CORS_ORIGIN || '*';
-const allowedOrigins = rawOrigins.split(',').map(s => s.trim());
+const allowedOrigins = rawOrigins
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
 app.use(cors({
   origin: function(origin, callback) {
-    // allow requests with no origin (like curl, postman, or mobile clients)
+    // allow requests with no origin (like curl, postman, or native mobile)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf('*') !== -1 || allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-    return callback(null, false);
+
+    // allow any origin if wildcard present
+    if (allowedOrigins.includes('*')) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    // explicitly disallow
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
+
+// Ensure caching proxies vary by Origin header when present
+app.use((req, res, next) => {
+  if (req.headers.origin) res.header('Vary', 'Origin');
+  next();
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
