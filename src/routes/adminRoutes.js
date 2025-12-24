@@ -25,6 +25,8 @@ router.get('/businesses', protect, adminOnly, checkPermission('canManageBusiness
 router.get('/businesses/:id', protect, adminOnly, checkPermission('canManageBusinesses'), getBusinessById);
 router.put('/businesses/:id/verify', protect, adminOnly, checkPermission('canManageBusinesses'), verifyBusiness);
 router.put('/businesses/:id/status', protect, adminOnly, checkPermission('canManageBusinesses'), updateBusinessStatus);
+router.put('/businesses/:id', protect, adminOnly, checkPermission('canManageBusinesses'), require('../controllers/adminController').updateBusiness);
+router.delete('/businesses/:id', protect, adminOnly, checkPermission('canManageBusinesses'), require('../controllers/adminController').deleteBusiness);
 router.get('/stats', protect, adminOnly, checkPermission('canViewSystemLogs'), getSystemStats);
 
 // Super admin only

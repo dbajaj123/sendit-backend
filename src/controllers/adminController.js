@@ -330,6 +330,56 @@ exports.createAdmin = async (req, res) => {
   }
 };
 
+// @desc    Update business details (admin)
+// @route   PUT /api/admin/businesses/:id
+// @access  Private (Admin)
+exports.updateBusiness = async (req, res) => {
+  try {
+    const { businessName, ownerName, email, phone, address, businessType, isVerified } = req.body;
+    const business = await Business.findById(req.params.id);
+    if (!business) {
+      return res.status(404).json({ success: false, message: 'Business not found' });
+    }
+
+    if (businessName !== undefined) business.businessName = businessName;
+    if (ownerName !== undefined) business.ownerName = ownerName;
+    if (email !== undefined) business.email = email;
+    if (phone !== undefined) business.phone = phone;
+    if (address !== undefined) business.address = address;
+    if (businessType !== undefined) business.businessType = businessType;
+    if (isVerified !== undefined) business.isVerified = isVerified;
+
+    await business.save();
+
+    res.status(200).json({ success: true, message: 'Business updated', data: business });
+  } catch (error) {
+    console.error('Update business error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update business', error: error.message });
+  }
+};
+
+// @desc    Delete business (admin)
+// @route   DELETE /api/admin/businesses/:id
+// @access  Private (Admin)
+exports.deleteBusiness = async (req, res) => {
+  try {
+    const business = await Business.findById(req.params.id);
+    if (!business) {
+      return res.status(404).json({ success: false, message: 'Business not found' });
+    }
+
+    // Remove related QRs and feedbacks
+    await QRCode.deleteMany({ businessId: business._id });
+    await Feedback.deleteMany({ businessId: business._id });
+    await business.remove();
+
+    res.status(200).json({ success: true, message: 'Business and related data deleted' });
+  } catch (error) {
+    console.error('Delete business error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete business', error: error.message });
+  }
+};
+
 // @desc    Get all QR codes (admin)
 // @route   GET /api/admin/qrs
 // @access  Private (Admin)
