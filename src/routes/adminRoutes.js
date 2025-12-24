@@ -7,6 +7,8 @@ const {
   verifyBusiness,
   updateBusinessStatus,
   getSystemStats,
+  getAllQRCodes,
+  getMetrics,
   createAdmin
 } = require('../controllers/adminController');
 const { protect, adminOnly, checkPermission } = require('../middleware/auth');
