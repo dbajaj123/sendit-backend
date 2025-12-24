@@ -21,9 +21,11 @@ exports.login = async (req, res) => {
 
     // Normalize email and find admin with password
     const normalizedEmail = String(email).trim().toLowerCase();
-    if (process.env.DEBUG_ADMIN) console.log('Attempting admin login for:', normalizedEmail);
+    // Log attempt (do not log password)
+    console.log(`[AdminLogin] attempt email=${normalizedEmail} ip=${req.ip} ua=${req.get('user-agent') || ''}`);
     const admin = await Admin.findOne({ email: normalizedEmail }).select('+password');
     if (!admin) {
+      console.warn(`[AdminLogin] no account for email=${normalizedEmail} ip=${req.ip}`);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -32,6 +34,7 @@ exports.login = async (req, res) => {
 
     // Check if admin is active
     if (!admin.isActive) {
+      console.warn(`[AdminLogin] deactivated account email=${normalizedEmail} ip=${req.ip}`);
       return res.status(401).json({
         success: false,
         message: 'Your account has been deactivated'
@@ -42,6 +45,7 @@ exports.login = async (req, res) => {
     const isPasswordMatch = await admin.comparePassword(password);
     if (process.env.DEBUG_ADMIN) console.log('Password match:', !!isPasswordMatch);
     if (!isPasswordMatch) {
+      console.warn(`[AdminLogin] invalid password for email=${normalizedEmail} ip=${req.ip}`);
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
@@ -54,6 +58,9 @@ exports.login = async (req, res) => {
 
     // Generate token
     const token = generateToken(admin._id, 'admin');
+
+    // Log successful login
+    console.log(`[AdminLogin] success email=${normalizedEmail} id=${admin._id} ip=${req.ip}`);
 
     res.status(200).json({
       success: true,
