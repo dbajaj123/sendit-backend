@@ -19,8 +19,10 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Find admin with password
-    const admin = await Admin.findOne({ email }).select('+password');
+    // Normalize email and find admin with password
+    const normalizedEmail = String(email).trim().toLowerCase();
+    if (process.env.DEBUG_ADMIN) console.log('Attempting admin login for:', normalizedEmail);
+    const admin = await Admin.findOne({ email: normalizedEmail }).select('+password');
     if (!admin) {
       return res.status(401).json({
         success: false,
@@ -38,6 +40,7 @@ exports.login = async (req, res) => {
 
     // Check password
     const isPasswordMatch = await admin.comparePassword(password);
+    if (process.env.DEBUG_ADMIN) console.log('Password match:', !!isPasswordMatch);
     if (!isPasswordMatch) {
       return res.status(401).json({
         success: false,
