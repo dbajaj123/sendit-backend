@@ -329,3 +329,39 @@ exports.createAdmin = async (req, res) => {
     });
   }
 };
+
+// @desc    Get all QR codes (admin)
+// @route   GET /api/admin/qrs
+// @access  Private (Admin)
+exports.getAllQRCodes = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, businessId } = req.query;
+    const query = {};
+    if (businessId) query.businessId = businessId;
+
+    const qrs = await QRCode.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((page - 1) * limit);
+
+    const count = await QRCode.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: parseInt(page),
+      data: qrs
+    });
+  } catch (error) {
+    console.error('Get all QRs error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get QR codes', error: error.message });
+  }
+};
+
+// @desc    Metrics compatibility endpoint (alias of stats)
+// @route   GET /api/admin/metrics
+// @access  Private (Admin)
+exports.getMetrics = async (req, res) => {
+  return exports.getSystemStats(req, res);
+};
