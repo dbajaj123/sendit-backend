@@ -371,7 +371,8 @@ exports.deleteBusiness = async (req, res) => {
     // Remove related QRs and feedbacks
     await QRCode.deleteMany({ businessId: business._id });
     await Feedback.deleteMany({ businessId: business._id });
-    await business.remove();
+    // use deleteOne on the document (remove() may be unavailable in some mongoose versions)
+    await business.deleteOne();
 
     res.status(200).json({ success: true, message: 'Business and related data deleted' });
   } catch (error) {
