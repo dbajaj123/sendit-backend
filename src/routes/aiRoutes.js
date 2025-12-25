@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { analyzeNow } = require('../controllers/aiController');
-const { protect, businessOnly } = require('../middleware/auth');
+const auth = require('../middleware/auth');
 
 // Run analysis on-demand (owner must be authenticated)
-router.post('/analyze', protect, businessOnly, analyzeNow);
+router.post('/analyze', auth, analyzeNow);
 
 module.exports = router;
