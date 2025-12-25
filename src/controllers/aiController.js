@@ -74,11 +74,7 @@ exports.analyzeNow = async function(req,res,next){
       }catch(e){ console.error('OpenAI summarize failed', e); }
     }
 
-    // assemble topical trends by keyword with examples
-    const trends = keywords.slice(0,6).map(k=>{
-      const examples = texts.filter(t=> t.toLowerCase().includes(k)).slice(0,3);
-      return { label: k, score: undefined, examples };
-    });
+    // `trends` already assembled above (either local or OpenAI-assisted)
 
     const report = await Report.create({
       businessId,
