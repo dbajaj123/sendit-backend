@@ -10,6 +10,10 @@ const feedbackRoutes = require('./routes/feedbackRoutes');
 const qrRoutes = require('./routes/qrRoutes');
 const businessRoutes = require('./routes/businessRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const aiRoutes = require('./routes/aiRoutes');
+const cron = require('node-cron');
+const Business = require('./models/Business');
+const { runForBusiness } = require('./controllers/aiController');
 
 // Initialize express app
 const app = express();
@@ -67,10 +71,28 @@ app.use('/api/feedback', feedbackRoutes);
 app.use('/api/qr', qrRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Error handling
 app.use(notFound);
 app.use(errorHandler);
+
+// Schedule weekly AI reports for businesses with aiEnabled (configurable)
+try{
+  const enableCron = process.env.AI_CRON_ENABLED !== 'false';
+  const schedule = process.env.AI_CRON_SCHEDULE || '0 3 * * 1'; // weekly Mon 03:00
+  if(enableCron){
+    cron.schedule(schedule, async () => {
+      try{
+        const list = await Business.find({ aiEnabled: true }).lean();
+        for(const b of list){
+          try{ await runForBusiness(b._id); }catch(e){ console.error('AI report failed for', b._id, e); }
+        }
+      }catch(e){ console.error('AI cron top-level error', e); }
+    });
+    console.log('AI cron scheduled:', schedule);
+  }
+}catch(e){ console.error('Failed to schedule AI cron', e); }
 
 // Start server
 const PORT = process.env.PORT || 5000;
