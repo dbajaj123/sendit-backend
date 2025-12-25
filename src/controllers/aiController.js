@@ -4,6 +4,7 @@ const Report = require('../models/Report');
 const Business = require('../models/Business');
 
 const sentiment = new Sentiment();
+const { summarizeWithOpenAI } = require('../lib/openaiClient');
 
 function tokenizeWords(s){
   return (s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
@@ -45,9 +46,33 @@ exports.analyzeNow = async function(req,res,next){
     const scores = texts.map(t=> sentiment.analyze(t).score );
     const avgSentiment = scores.reduce((a,b)=>a+b,0)/scores.length;
 
-    // keywords and extractive summary
+    // keywords
     const keywords = extractKeywords(corpus, 12);
-    const summary = summarizeExtractive(corpus, keywords, 6);
+
+    // If OPENAI_API_KEY configured, use OpenAI to generate a concise JSON report
+    let summary = summarizeExtractive(corpus, keywords, 6);
+    let trends = keywords.slice(0,6).map(k=>{
+      const examples = texts.filter(t=> t.toLowerCase().includes(k)).slice(0,3);
+      return { label: k, score: undefined, examples };
+    });
+
+    if(process.env.OPENAI_API_KEY){
+      try{
+        const sample = texts.slice(0,100).join('\n\n');
+        const prompt = `Analyze the following customer feedback entries and return a JSON object with keys: summary (short, 2-4 sentences), trends (array of {label, examples}), statsNote (one-line about sentiment).\n\nFeedback:\n${sample}`;
+        const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 600 });
+        // try to parse JSON from AI output
+        let parsed = null;
+        try{ parsed = JSON.parse(aiText); }catch(e){
+          // fallback: put the text as summary
+          parsed = { summary: aiText };
+        }
+        if(parsed){
+          summary = parsed.summary || summary;
+          if(Array.isArray(parsed.trends)) trends = parsed.trends.map(t=>({ label: t.label, examples: t.examples || [] }));
+        }
+      }catch(e){ console.error('OpenAI summarize failed', e); }
+    }
 
     // assemble topical trends by keyword with examples
     const trends = keywords.slice(0,6).map(k=>{
@@ -63,7 +88,7 @@ exports.analyzeNow = async function(req,res,next){
       summary,
       trends,
       stats: { totalFeedback: items.length, avgSentiment },
-      meta: { generatedBy: 'local-nlp-v1' }
+      meta: { generatedBy: process.env.OPENAI_API_KEY ? 'openai-assisted-v1' : 'local-nlp-v1' }
     });
 
     return res.json({ success:true, report });
