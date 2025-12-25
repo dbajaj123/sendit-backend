@@ -154,7 +154,27 @@ exports.computeTopics = async function(req, res, next){
         if(weeksAgo < 8) counts[7 - weeksAgo] += 1; // reverse for oldest->newest
       });
 
-      return { id: cid, size: docIndices.length, label: topTerms.slice(0,3).join(', '), topTerms, avgSentiment: avgSent, examples, timeseries: counts };
+      // Heuristic advice generation based on top terms and sentiment
+      let advice = 'Review these feedback examples and take action as needed.';
+      const tstr = topTerms.join(' ');
+      const lowSent = avgSent < 0;
+      if(/wait|slow|delay|long|queue|waiting/.test(tstr) || /wait|slow|delay|long|queue|waiting/.test(tstr)){
+        advice = 'Customers mention delays; investigate staffing/queueing and streamline service flow.';
+      } else if(/price|cost|expensive|charge/.test(tstr)){
+        advice = 'Price concerns detected; review pricing, offer promotions, or clarify value.';
+      } else if(/dirty|clean|hygiene|smell/.test(tstr)){
+        advice = 'Cleanliness issues reported; schedule immediate cleaning and inspect facilities.';
+      } else if(/staff|rude|friendly|service/.test(tstr)){
+        advice = 'Customer-facing staff issues; consider training and feedback sessions.';
+      } else if(/order|app|website|ux|checkout/.test(tstr)){
+        advice = 'UX/order issues found; review the ordering flow and fix errors or edge-cases.';
+      } else if(lowSent && docIndices.length>5){
+        advice = 'Multiple negative feedback items found; triage top examples and prioritize fixes.';
+      } else if(docIndices.length>10){
+        advice = 'This is a recurring topic — investigate root cause and monitor after fixes.';
+      }
+
+      return { id: cid, size: docIndices.length, label: topTerms.slice(0,3).join(', '), topTerms, avgSentiment: avgSent, examples, timeseries: counts, advice };
     });
 
     return res.json({ success:true, topics });
