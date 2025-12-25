@@ -1,12 +1,11 @@
-const { Configuration, OpenAIApi } = require('openai');
+const OpenAI = require('openai');
 
 let client = null;
 function getClient(){
   if(client) return client;
   const key = process.env.OPENAI_API_KEY;
   if(!key) return null;
-  const configuration = new Configuration({ apiKey: key });
-  client = new OpenAIApi(configuration);
+  client = new OpenAI({ apiKey: key });
   return client;
 }
 
@@ -21,8 +20,8 @@ async function summarizeWithOpenAI(prompt, options={}){
     { role: 'user', content: prompt }
   ];
 
-  const resp = await openai.createChatCompletion({ model, messages, max_tokens });
-  const text = resp?.data?.choices?.[0]?.message?.content;
+  const resp = await openai.chat.completions.create({ model, messages, max_tokens });
+  const text = resp?.choices?.[0]?.message?.content || resp?.choices?.[0]?.delta?.content || '';
   return text;
 }
 
