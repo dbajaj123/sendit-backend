@@ -5,6 +5,9 @@ const Business = require('../models/Business');
 
 const sentiment = new Sentiment();
 const { summarizeWithOpenAI } = require('../lib/openaiClient');
+const natural = require('natural');
+const kmeans = require('ml-kmeans');
+const TfIdf = natural.TfIdf;
 
 function tokenizeWords(s){
   return (s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
@@ -88,6 +91,73 @@ exports.analyzeNow = async function(req,res,next){
     });
 
     return res.json({ success:true, report });
+  }catch(e){ next(e); }
+};
+
+// Compute topics via TF-IDF + KMeans (no LLM required)
+exports.computeTopics = async function(req, res, next){
+  try{
+    const businessId = req.user?.businessId || req.query.businessId || req.body.businessId;
+    if(!businessId) return res.status(400).json({ success:false, message:'businessId required' });
+
+    const items = await Feedback.find({ businessId }).sort({ createdAt:-1 }).limit(1000).lean();
+    if(!items.length) return res.json({ success:true, topics: [] });
+
+    const texts = items.map(i=> (i.text || i.content || i.message || '') ).filter(Boolean);
+
+    // Build TF-IDF
+    const tfidf = new TfIdf();
+    texts.forEach(t=> tfidf.addDocument(t));
+
+    // Build vocabulary of top terms across corpus
+    const termFreq = {};
+    for(let i=0;i<texts.length;i++){
+      tfidf.listTerms(i).slice(0,50).forEach(o=>{ termFreq[o.term] = (termFreq[o.term]||0) + o.tf; });
+    }
+    const vocab = Object.entries(termFreq).sort((a,b)=>b[1]-a[1]).slice(0,200).map(x=>x[0]);
+
+    // Vectorize documents
+    const vectors = texts.map((t, idx)=> vocab.map(term => tfidf.tfidf(term, idx)) );
+
+    // Choose k
+    const n = Math.max(2, Math.min(6, Math.floor(Math.sqrt(vectors.length))));
+    let km = null;
+    try{ km = kmeans(vectors, n); }catch(e){
+      // fallback to single cluster
+      km = { clusters: Array(vectors.length).fill(0), centroids: [] };
+    }
+
+    const clusters = {};
+    (km.clusters || []).forEach((cIdx, docIdx)=>{
+      clusters[cIdx] = clusters[cIdx] || { docs: [] };
+      clusters[cIdx].docs.push(docIdx);
+    });
+
+    // Build topics
+    const topics = Object.entries(clusters).map(([cid, info])=>{
+      const docIndices = info.docs;
+      const clusterTexts = docIndices.map(i=>texts[i]);
+      const clusterTerms = {};
+      docIndices.forEach(i=> tfidf.listTerms(i).slice(0,30).forEach(o=>{ clusterTerms[o.term]=(clusterTerms[o.term]||0)+o.tfidf; }));
+      const topTerms = Object.entries(clusterTerms).sort((a,b)=>b[1]-a[1]).slice(0,8).map(x=>x[0]);
+      const examples = docIndices.slice(0,3).map(i=> ({ text: texts[i], id: items[i]._id, createdAt: items[i].createdAt }) );
+      const sentiments = docIndices.map(i=> sentiment.analyze(texts[i]).score);
+      const avgSent = sentiments.length? (sentiments.reduce((a,b)=>a+b,0)/sentiments.length) : 0;
+
+      // timeseries: counts per week for last 8 weeks
+      const now = Date.now();
+      const weekMs = 7*24*3600*1000;
+      const counts = new Array(8).fill(0);
+      docIndices.forEach(i=>{
+        const dt = new Date(items[i].createdAt).getTime();
+        const weeksAgo = Math.floor((now - dt)/weekMs);
+        if(weeksAgo < 8) counts[7 - weeksAgo] += 1; // reverse for oldest->newest
+      });
+
+      return { id: cid, size: docIndices.length, label: topTerms.slice(0,3).join(', '), topTerms, avgSentiment: avgSent, examples, timeseries: counts };
+    });
+
+    return res.json({ success:true, topics });
   }catch(e){ next(e); }
 };
 

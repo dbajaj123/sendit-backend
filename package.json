@@ -30,7 +30,9 @@
     "express-validator": "^7.0.1",
     "sentiment": "^5.0.2",
     "node-cron": "^3.0.2",
-    "openai": "^4.4.0"
+    "openai": "^4.4.0",
+    "natural": "^6.3.0",
+    "ml-kmeans": "^2.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
