@@ -21,6 +21,18 @@ function extractKeywords(text, topN=10){
   return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,topN).map(x=>x[0]);
 }
 
+function adviceForKeyword(k){
+  if(/wait|slow|delay|long|queue|waiting/.test(k)) return 'Investigate service speed: adjust staffing, optimize order flow, and reduce wait times.';
+  if(/price|cost|expensive|charge/.test(k)) return 'Review pricing and consider promotions or clearer menu value descriptions.';
+  if(/dirty|clean|hygiene|smell/.test(k)) return 'Address cleanliness: schedule immediate cleaning and audit facility hygiene.';
+  if(/staff|rude|friendly|service/.test(k)) return 'Provide staff training and coaching focused on customer service and friendliness.';
+  if(/order|app|website|ux|checkout|menu/.test(k)) return 'Review ordering flow and menus for errors or confusing steps; fix UX gaps.';
+  if(/cold|undercooked|overcooked|taste|bland|flavor/.test(k)) return 'Investigate food preparation and quality control in the kitchen.';
+  if(/portion|size|small/.test(k)) return 'Re-evaluate portion sizes or pricing; ensure portions match expectations.';
+  if(/noise|music|loud/.test(k)) return 'Adjust music volume and seating to improve conversation comfort.';
+  return 'Review this topic and triage top operational fixes; monitor impact after changes.';
+}
+
 function summarizeExtractive(text, keywords, sentenceLimit=5){
   const sentences = (text||'').split(/[\.\!\?]\s+/).map(s=>s.trim()).filter(Boolean);
   const scored = sentences.map(s=>{
@@ -52,12 +64,12 @@ exports.analyzeNow = async function(req,res,next){
     // keywords
     const keywords = extractKeywords(corpus, 12);
 
-    // If OPENAI_API_KEY configured, use OpenAI to generate a concise JSON report
-    let summary = summarizeExtractive(corpus, keywords, 6);
-    let trends = keywords.slice(0,6).map(k=>{
-      const examples = texts.filter(t=> t.toLowerCase().includes(k)).slice(0,3);
-      return { label: k, score: undefined, examples };
-    });
+    // Build recommendation-focused summary and trends (do NOT include raw feedback examples)
+    const topKeywords = keywords.slice(0,6);
+    const trends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
+
+    // Local summary: concise recommendations (no raw customer text)
+    let summary = topKeywords.map((k,i) => `${i+1}. ${adviceForKeyword(k)} (topic: ${k})`).join(' \n');
 
     if(process.env.OPENAI_API_KEY){
       try{
@@ -71,8 +83,11 @@ exports.analyzeNow = async function(req,res,next){
           parsed = { summary: aiText };
         }
         if(parsed){
-          summary = parsed.summary || summary;
-          if(Array.isArray(parsed.trends)) trends = parsed.trends.map(t=>({ label: t.label, examples: t.examples || [] }));
+          // prefer AI-provided recommendations if it returns structured content
+          // but avoid storing raw feedback examples — map to recommendation strings
+          const aiSummary = parsed.summary || parsed.recommendations || parsed.advice || null;
+          if(aiSummary) summary = (typeof aiSummary === 'string') ? aiSummary : Array.isArray(aiSummary) ? aiSummary.join('\n') : summary;
+          if(Array.isArray(parsed.trends)) trends = parsed.trends.map(t=>({ label: t.label, recommendation: t.recommendation || adviceForKeyword(t.label || '') }));
         }
       }catch(e){ console.error('OpenAI summarize failed', e); }
     }
@@ -191,11 +206,9 @@ exports.runForBusiness = async function(businessId){
   const scores = texts.map(t=> sentiment.analyze(t).score );
   const avgSentiment = scores.reduce((a,b)=>a+b,0)/scores.length;
   const keywords = extractKeywords(corpus, 12);
-  const summary = summarizeExtractive(corpus, keywords, 6);
-  const trends = keywords.slice(0,6).map(k=>{
-    const examples = texts.filter(t=> t.toLowerCase().includes(k)).slice(0,3);
-    return { label: k, score: undefined, examples };
-  });
+  const topKeywords = keywords.slice(0,6);
+  const summary = topKeywords.map((k,i) => `${i+1}. ${adviceForKeyword(k)} (topic: ${k})`).join('\n');
+  const trends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
   const report = await Report.create({ businessId, generatedAt: new Date(), summary, trends, stats:{ totalFeedback: items.length, avgSentiment }, meta:{ generatedBy:'local-nlp-v1', triggeredBy:'cron' } });
   return report;
 };
