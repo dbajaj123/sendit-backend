@@ -48,18 +48,41 @@ async function run(){
   const texts = items.map(i=> (i.text || i.content || i.message || i.feedback || '') ).filter(Boolean);
   const sample = texts.join('\n\n');
 
-  const prompt = `You are an assistant that produces concise, actionable recommendations based on customer feedback. Produce a JSON object with a single key \"recommendations\" whose value is an array of recommendation objects. Each recommendation object should have keys: \"advice\" (short, 1-2 sentences), \"topics\" (array of topic strings covered by this advice), and \"actions\" (array of 2-4 concrete action steps). DO NOT repeat identical advice across entries. DO NOT include raw customer text or examples. Output strictly valid JSON.`;
+  const prompt = `You are an assistant that produces concise, actionable recommendations based on customer feedback. OUTPUT STRICTLY VALID JSON ONLY and nothing else. Produce a single JSON object with the key \"recommendations\" whose value is an array of recommendation objects. Each recommendation object must include: \"advice\" (short, 1-2 sentences), \"topics\" (array of topic strings), and \"actions\" (array of 2-4 concrete action steps). DO NOT repeat identical advice across entries. DO NOT include raw customer text or examples. If you include anything else, put it AFTER the JSON and wrap it in triple backticks. The JSON must start with '{' and end with '}'.`;
 
   try{
     let final = [];
     if(process.env.GEMINI_API_KEY){
       const aiText = await summarizeWithOpenAI(`${prompt}\n\nFeedback:\n${sample}`, { max_tokens: 1200 });
       let parsed = null;
-      try{ parsed = JSON.parse(aiText); }catch(e){
-        console.error('AI output was not valid JSON; attempting best-effort parsing');
-        const lines = aiText.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-        const uniq = Array.from(new Set(lines));
-        parsed = { recommendations: uniq.map((l,i)=>({ advice: l, topics: [], actions: [] })) };
+      try{
+        parsed = JSON.parse(aiText);
+      }catch(e){
+        console.warn('AI output was not valid JSON; attempting extraction and best-effort parsing');
+        // Try to extract a JSON object from the text (handle wrappers or commentary)
+        let jsonCandidate = null;
+        // 1) JSON inside triple-backtick block
+        let m = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if(m && m[1]) jsonCandidate = m[1].trim();
+        // 2) Fallback: first {...} block in the output
+        if(!jsonCandidate){
+          m = aiText.match(/(\{[\s\S]*\})/);
+          if(m && m[1]) jsonCandidate = m[1].trim();
+        }
+        // 3) Last-resort: try to join lines that look like JSON-ish
+        if(jsonCandidate){
+          try{ parsed = JSON.parse(jsonCandidate); }
+          catch(e2){
+            console.warn('Extracted JSON candidate failed to parse, falling back to line-based parsing');
+            jsonCandidate = null;
+          }
+        }
+        if(!jsonCandidate){
+          // Best-effort: split by lines and dedupe short sentences
+          const lines = aiText.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+          const uniq = Array.from(new Set(lines));
+          parsed = { recommendations: uniq.map((l,i)=>({ advice: l, topics: [], actions: [] })) };
+        }
       }
 
       // Normalize and dedupe by advice text
