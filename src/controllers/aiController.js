@@ -86,20 +86,23 @@ exports.analyzeNow = async function(req,res,next){
     if(process.env.GEMINI_API_KEY){
       try{
         const sample = texts.slice(0,100).join('\n\n');
-        const prompt = `Analyze the following customer feedback entries and return a JSON object with keys: summary (short, 2-4 sentences), trends (array of {label, examples}), statsNote (one-line about sentiment).\n\nFeedback:\n${sample}`;
-        const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 600 });
-        // try to parse JSON from AI output
+        const prompt = `You are an assistant that outputs STRICT JSON only. Produce an object with keys: \"summary\" (2-4 sentences), \"recommendations\" (array of {advice, topics, actions}), and \"trends\" (array of {label, recommendation}). Do NOT include raw feedback examples. Feedback:\n${sample}`;
+        const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 800 });
+        // try to extract JSON from AI output
         let parsed = null;
         try{ parsed = JSON.parse(aiText); }catch(e){
-          // fallback: put the text as summary
-          parsed = { summary: aiText };
+          // try simple extraction of JSON block
+          const m = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i) || aiText.match(/(\{[\s\S]*\})/);
+          if(m && m[1]){
+            try{ parsed = JSON.parse(m[1]); }catch(e2){ parsed = { summary: aiText }; }
+          } else {
+            parsed = { summary: aiText };
+          }
         }
         if(parsed){
-          // prefer AI-provided recommendations if it returns structured content
-          const aiSummary = parsed.summary || parsed.recommendations || parsed.advice || null;
+          const aiSummary = parsed.summary || (parsed.recommendations ? parsed.recommendations.map(r=>r.advice).join('\n') : null) || parsed.advice || null;
           if(aiSummary) summary = (typeof aiSummary === 'string') ? aiSummary : Array.isArray(aiSummary) ? aiSummary.join('\n') : summary;
           if(Array.isArray(parsed.trends)){
-            // map AI trends to internal format, dedupe identical recommendations
             const mapped = parsed.trends.map(t => ({ label: t.label, recommendation: t.recommendation || adviceForKeyword(t.label || '') }));
             const trendMap = new Map();
             mapped.forEach(t => {
@@ -110,6 +113,22 @@ exports.analyzeNow = async function(req,res,next){
               }
             });
             trends = Array.from(trendMap.values()).map(v => ({ label: v.labels.join(', '), recommendation: v.recommendation }));
+          }
+          // Build aiInsights structure if recommendations provided
+          if(Array.isArray(parsed.recommendations)){
+            const recs = parsed.recommendations.map(r=>({ advice: r.advice||r.text||'', topics: r.topics||[], actions: r.actions||[] }));
+            // dedupe by advice
+            const map = new Map();
+            recs.forEach(r=>{
+              const key = (r.advice||'').trim();
+              if(!key) return;
+              if(map.has(key)){
+                const cur = map.get(key);
+                cur.topics = Array.from(new Set(cur.topics.concat(r.topics)));
+                cur.actions = Array.from(new Set(cur.actions.concat(r.actions)));
+              } else map.set(key, { advice: key, topics: Array.from(new Set(r.topics)), actions: Array.from(new Set(r.actions)) });
+            });
+            var aiInsights = { source: 'gemini', recommendations: Array.from(map.values()) };
           }
         }
       }catch(e){ console.error('Gemini summarize failed', e); }
@@ -124,6 +143,7 @@ exports.analyzeNow = async function(req,res,next){
       periodEnd: items[0].createdAt,
       summary,
       trends,
+      aiInsights: aiInsights || null,
       stats: { totalFeedback: items.length, avgSentiment },
       meta: { generatedBy: process.env.GEMINI_API_KEY ? 'gemini-assisted-v1' : 'local-nlp-v1' }
     });
