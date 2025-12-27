@@ -51,30 +51,65 @@ async function run(){
   const prompt = `You are an assistant that produces concise, actionable recommendations based on customer feedback. Produce a JSON object with a single key \"recommendations\" whose value is an array of recommendation objects. Each recommendation object should have keys: \"advice\" (short, 1-2 sentences), \"topics\" (array of topic strings covered by this advice), and \"actions\" (array of 2-4 concrete action steps). DO NOT repeat identical advice across entries. DO NOT include raw customer text or examples. Output strictly valid JSON.`;
 
   try{
-    const aiText = await summarizeWithOpenAI(`${prompt}\n\nFeedback:\n${sample}`, { max_tokens: 1200 });
-    let parsed = null;
-    try{ parsed = JSON.parse(aiText); }catch(e){
-      console.error('AI output was not valid JSON; attempting best-effort parsing');
-      // Best-effort: split by newlines and dedupe
-      const lines = aiText.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-      const uniq = Array.from(new Set(lines));
-      parsed = { recommendations: uniq.map((l,i)=>({ advice: l, topics: [], actions: [] })) };
-    }
-
-    // Normalize and dedupe by advice text
-    const recs = (parsed.recommendations || []).map(r=>({ advice: (r.advice||r.text||'').trim(), topics: r.topics||[], actions: r.actions||[] }));
-    const dedupe = new Map();
-    recs.forEach(r=>{
-      if(!r.advice) return;
-      if(dedupe.has(r.advice)){
-        const cur = dedupe.get(r.advice);
-        cur.topics = Array.from(new Set(cur.topics.concat(r.topics)));
-        cur.actions = Array.from(new Set(cur.actions.concat(r.actions)));
-      } else {
-        dedupe.set(r.advice, { advice: r.advice, topics: Array.from(new Set(r.topics)), actions: Array.from(new Set(r.actions)) });
+    let final = [];
+    if(process.env.GEMINI_API_KEY){
+      const aiText = await summarizeWithOpenAI(`${prompt}\n\nFeedback:\n${sample}`, { max_tokens: 1200 });
+      let parsed = null;
+      try{ parsed = JSON.parse(aiText); }catch(e){
+        console.error('AI output was not valid JSON; attempting best-effort parsing');
+        const lines = aiText.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+        const uniq = Array.from(new Set(lines));
+        parsed = { recommendations: uniq.map((l,i)=>({ advice: l, topics: [], actions: [] })) };
       }
-    });
-    const final = Array.from(dedupe.values());
+
+      // Normalize and dedupe by advice text
+      const recs = (parsed.recommendations || []).map(r=>({ advice: (r.advice||r.text||'').trim(), topics: r.topics||[], actions: r.actions||[] }));
+      const dedupe = new Map();
+      recs.forEach(r=>{
+        if(!r.advice) return;
+        if(dedupe.has(r.advice)){
+          const cur = dedupe.get(r.advice);
+          cur.topics = Array.from(new Set(cur.topics.concat(r.topics)));
+          cur.actions = Array.from(new Set(cur.actions.concat(r.actions)));
+        } else {
+          dedupe.set(r.advice, { advice: r.advice, topics: Array.from(new Set(r.topics)), actions: Array.from(new Set(r.actions)) });
+        }
+      });
+      final = Array.from(dedupe.values());
+    } else {
+      // Fallback local summarizer when GEMINI_API_KEY is not configured
+      const tokenizeWords = (s) => (s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(Boolean);
+      const STOPWORDS = new Set(['the','and','is','in','at','of','a','an','to','for','with','on','it','this','that','was','are','as','but','be','by','from','or','we','they','you']);
+      function extractKeywords(text, topN=10){
+        const freq = Object.create(null);
+        tokenizeWords(text).forEach(w=>{ if(!STOPWORDS.has(w) && w.length>2) freq[w]=(freq[w]||0)+1; });
+        return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,topN).map(x=>x[0]);
+      }
+      function adviceForKeyword(k){
+        if(/wait|slow|delay|long|queue|waiting/.test(k)) return 'Investigate service speed: adjust staffing, optimize order flow, and reduce wait times.';
+        if(/price|cost|expensive|charge/.test(k)) return 'Review pricing and consider promotions or clearer menu value descriptions.';
+        if(/dirty|clean|hygiene|smell/.test(k)) return 'Address cleanliness: schedule immediate cleaning and audit facility hygiene.';
+        if(/staff|rude|friendly|service/.test(k)) return 'Provide staff training and coaching focused on customer service and friendliness.';
+        if(/order|app|website|ux|checkout|menu/.test(k)) return 'Review ordering flow and menus for errors or confusing steps; fix UX gaps.';
+        if(/cold|undercooked|overcooked|taste|bland|flavor/.test(k)) return 'Investigate food preparation and quality control in the kitchen.';
+        if(/portion|size|small/.test(k)) return 'Re-evaluate portion sizes or pricing; ensure portions match expectations.';
+        if(/noise|music|loud/.test(k)) return 'Adjust music volume and seating to improve conversation comfort.';
+        return 'Review this topic and triage top operational fixes; monitor impact after changes.';
+      }
+
+      const keywords = extractKeywords(sample, 12).slice(0,8);
+      const recs = keywords.map(k=>({ advice: adviceForKeyword(k), topics: [k], actions: [] }));
+      const uniqMap = new Map();
+      recs.forEach(r=>{
+        if(uniqMap.has(r.advice)) uniqMap.get(r.advice).topics.push(...r.topics);
+        else uniqMap.set(r.advice, { advice: r.advice, topics: [...r.topics], actions: [
+          'Investigate root cause and collect top examples internally',
+          'Assign an owner and set measurable targets',
+          'Implement at least one corrective action and monitor impact'
+        ] });
+      });
+      final = Array.from(uniqMap.values()).map(v=>({ advice: v.advice, topics: Array.from(new Set(v.topics)), actions: v.actions }));
+    }
 
     // Persist to file
     const outDir = path.join(process.cwd(), 'reports');

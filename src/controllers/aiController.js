@@ -115,7 +115,7 @@ exports.analyzeNow = async function(req,res,next){
       }catch(e){ console.error('Gemini summarize failed', e); }
     }
 
-    // `trends` already assembled above (either local or OpenAI-assisted)
+    // `trends` already assembled above (either local or Gemini-assisted)
 
     const report = await Report.create({
       businessId,
