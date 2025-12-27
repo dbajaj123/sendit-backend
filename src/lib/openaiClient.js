@@ -15,6 +15,8 @@ function getClient(){
     }catch(e){ /* ignore */ }
   }
 
+  console.log(key);
+
   if(key){
     // instantiate with apiKey option if supported
     try{
@@ -36,6 +38,7 @@ function getClient(){
 }
 
 async function summarizeWithOpenAI(prompt, options={}){
+  console.log(process.env.GEMINI_API_KEY);
   const genAI = getClient();
   if(!genAI) throw new Error('GEMINI_API_KEY / GOOGLE_API_KEY / GOOGLE_APPLICATION_CREDENTIALS not configured');
   
