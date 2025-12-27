@@ -3,6 +3,9 @@ require('dotenv').config({ path: process.env.ENV_PATH || '.env' });
 const mongoose = require('mongoose');
 const Feedback = require('../models/Feedback');
 const Business = require('../models/Business');
+const QRCode = require('../models/QRCode');
+const qrcode = require('qrcode');
+const { v4: uuidv4 } = require('uuid');
 
 function parseArgs(){
   const args = {};
@@ -51,13 +54,26 @@ async function run(){
     process.exit(1);
   }
 
+  // Ensure there's at least one QR for the business; create if missing
+  let qr = await QRCode.findOne({ businessId }).lean();
+  if(!qr){
+    const qrId = uuidv4();
+    const baseCustomerUrl = process.env.CUSTOMER_APP_URL || 'https://example.com';
+    const targetUrl = `${baseCustomerUrl.replace(/\/$/, '')}/feedback/${qrId}`;
+    const qrCodeUrl = await qrcode.toDataURL(targetUrl, { margin: 1, width: 300 });
+    const newQr = new QRCode({ qrId, businessId, qrCodeUrl, targetUrl, location: 'Auto-seeded' });
+    await newQr.save();
+    qr = newQr.toObject();
+    console.log('Auto-created QR for seeding:', qr.qrId);
+  }
+
   const created = [];
   const now = Date.now();
   for(let i=0;i<count;i++){
     const text = sampleTexts[randInt(0, sampleTexts.length-1)];
     const rating = randInt(1,5);
     const createdAt = new Date(now - randInt(0, 8*7*24*3600*1000));
-    const doc = new Feedback({ businessId, feedbackType: 'text', content: text, rating, createdAt });
+    const doc = new Feedback({ businessId, qrId: qr.qrId, feedbackType: 'text', content: text, rating, createdAt });
     await doc.save();
     created.push(doc);
   }
