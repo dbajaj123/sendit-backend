@@ -3,34 +3,18 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 let client = null;
 function getClient(){
   if(client) return client;
-  // Support multiple env var names for flexibility
-  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_API_KEY_JSON;
-  // If a JSON service account is provided via env, prefer application default credentials
-  if(key && key.startsWith('{')){
-    // If JSON credentials are stored in env var, write to temp file and set env var for client libs
-    try{
-      const tmp = require('os').tmpdir() + '/gcloud_creds_' + Date.now() + '.json';
-      require('fs').writeFileSync(tmp, key);
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = tmp;
-    }catch(e){ /* ignore */ }
-  }
 
-  console.log(key);
+  // 1. Get the key string
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || process.env.GOOGLE_API_KEY_JSON;
+
+  // (Optional) JSON Service Account logic... 
+  // If you are using a standard AI Studio key (starts with AIza), you don't need the JSON logic.
+  
+  console.log("Debug Key:", key); // Ensure this prints the "AIza..." string
 
   if(key){
-    // instantiate with apiKey option if supported
-    try{
-      client = new GoogleGenerativeAI({ apiKey: key });
-    }catch(e){
-      // fallback to passing key directly
-      client = new GoogleGenerativeAI(key);
-    }
-    return client;
-  }
-
-  // If GOOGLE_APPLICATION_CREDENTIALS is set, the client can pick up ADC
-  if(process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-    client = new GoogleGenerativeAI();
+    // 2. PASS THE STRING DIRECTLY. Do not wrap it in an object.
+    client = new GoogleGenerativeAI(key);
     return client;
   }
 
