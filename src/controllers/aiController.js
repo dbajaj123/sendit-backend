@@ -71,7 +71,7 @@ exports.analyzeNow = async function(req,res,next){
     // Local summary: concise recommendations (no raw customer text)
     let summary = topKeywords.map((k,i) => `${i+1}. ${adviceForKeyword(k)} (topic: ${k})`).join(' \n');
 
-    if(process.env.OPENAI_API_KEY){
+    if(process.env.GEMINI_API_KEY){
       try{
         const sample = texts.slice(0,100).join('\n\n');
         const prompt = `Analyze the following customer feedback entries and return a JSON object with keys: summary (short, 2-4 sentences), trends (array of {label, examples}), statsNote (one-line about sentiment).\n\nFeedback:\n${sample}`;
@@ -89,7 +89,7 @@ exports.analyzeNow = async function(req,res,next){
           if(aiSummary) summary = (typeof aiSummary === 'string') ? aiSummary : Array.isArray(aiSummary) ? aiSummary.join('\n') : summary;
           if(Array.isArray(parsed.trends)) trends = parsed.trends.map(t=>({ label: t.label, recommendation: t.recommendation || adviceForKeyword(t.label || '') }));
         }
-      }catch(e){ console.error('OpenAI summarize failed', e); }
+      }catch(e){ console.error('Gemini summarize failed', e); }
     }
 
     // `trends` already assembled above (either local or OpenAI-assisted)
@@ -102,7 +102,7 @@ exports.analyzeNow = async function(req,res,next){
       summary,
       trends,
       stats: { totalFeedback: items.length, avgSentiment },
-      meta: { generatedBy: process.env.OPENAI_API_KEY ? 'openai-assisted-v1' : 'local-nlp-v1' }
+      meta: { generatedBy: process.env.GEMINI_API_KEY ? 'gemini-assisted-v1' : 'local-nlp-v1' }
     });
 
     return res.json({ success:true, report });
