@@ -69,7 +69,19 @@ exports.analyzeNow = async function(req,res,next){
     const trends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
 
     // Local summary: concise recommendations (no raw customer text)
-    let summary = topKeywords.map((k,i) => `${i+1}. ${adviceForKeyword(k)} (topic: ${k})`).join(' \n');
+    // Build recommendations per keyword, but avoid repeating identical advice strings
+    const recsByKeyword = topKeywords.map((k) => ({ topic: k, advice: adviceForKeyword(k) }));
+    // Deduplicate by advice text, keeping a list of topics per unique advice
+    const uniqueRecsMap = new Map();
+    recsByKeyword.forEach(r => {
+      if(uniqueRecsMap.has(r.advice)){
+        uniqueRecsMap.get(r.advice).topics.push(r.topic);
+      } else {
+        uniqueRecsMap.set(r.advice, { advice: r.advice, topics: [r.topic] });
+      }
+    });
+    const uniqueRecs = Array.from(uniqueRecsMap.values());
+    let summary = uniqueRecs.map((r,i) => `${i+1}. ${r.advice} (topics: ${r.topics.join(', ')})`).join('\n');
 
     if(process.env.GEMINI_API_KEY){
       try{
@@ -84,10 +96,21 @@ exports.analyzeNow = async function(req,res,next){
         }
         if(parsed){
           // prefer AI-provided recommendations if it returns structured content
-          // but avoid storing raw feedback examples — map to recommendation strings
           const aiSummary = parsed.summary || parsed.recommendations || parsed.advice || null;
           if(aiSummary) summary = (typeof aiSummary === 'string') ? aiSummary : Array.isArray(aiSummary) ? aiSummary.join('\n') : summary;
-          if(Array.isArray(parsed.trends)) trends = parsed.trends.map(t=>({ label: t.label, recommendation: t.recommendation || adviceForKeyword(t.label || '') }));
+          if(Array.isArray(parsed.trends)){
+            // map AI trends to internal format, dedupe identical recommendations
+            const mapped = parsed.trends.map(t => ({ label: t.label, recommendation: t.recommendation || adviceForKeyword(t.label || '') }));
+            const trendMap = new Map();
+            mapped.forEach(t => {
+              if(trendMap.has(t.recommendation)){
+                trendMap.get(t.recommendation).labels.push(t.label);
+              } else {
+                trendMap.set(t.recommendation, { recommendation: t.recommendation, labels: [t.label] });
+              }
+            });
+            trends = Array.from(trendMap.values()).map(v => ({ label: v.labels.join(', '), recommendation: v.recommendation }));
+          }
         }
       }catch(e){ console.error('Gemini summarize failed', e); }
     }
@@ -207,8 +230,19 @@ exports.runForBusiness = async function(businessId){
   const avgSentiment = scores.reduce((a,b)=>a+b,0)/scores.length;
   const keywords = extractKeywords(corpus, 12);
   const topKeywords = keywords.slice(0,6);
-  const summary = topKeywords.map((k,i) => `${i+1}. ${adviceForKeyword(k)} (topic: ${k})`).join('\n');
-  const trends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
+  // Deduplicate advice for runForBusiness as well
+  const recsByKeyword = topKeywords.map((k) => ({ topic: k, advice: adviceForKeyword(k) }));
+  const uniqueRecsMap = new Map();
+  recsByKeyword.forEach(r => {
+    if(uniqueRecsMap.has(r.advice)){
+      uniqueRecsMap.get(r.advice).topics.push(r.topic);
+    } else {
+      uniqueRecsMap.set(r.advice, { advice: r.advice, topics: [r.topic] });
+    }
+  });
+  const uniqueRecs = Array.from(uniqueRecsMap.values());
+  const summary = uniqueRecs.map((r,i) => `${i+1}. ${r.advice} (topics: ${r.topics.join(', ')})`).join('\n');
+  const trends = uniqueRecs.map(r => ({ label: r.topics.join(', '), recommendation: r.advice }));
   const report = await Report.create({ businessId, generatedAt: new Date(), summary, trends, stats:{ totalFeedback: items.length, avgSentiment }, meta:{ generatedBy:'local-nlp-v1', triggeredBy:'cron' } });
   return report;
 };
