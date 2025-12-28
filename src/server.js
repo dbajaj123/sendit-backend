@@ -52,6 +52,21 @@ app.use((req, res, next) => {
   next();
 });
 
+// Request logging middleware (helpful for debugging uploads/proxy issues)
+app.use((req, res, next) => {
+  try {
+    if (req.method === 'POST' || req.method === 'PUT') {
+      const cl = req.headers['content-length'] || 'unknown';
+      const ct = req.headers['content-type'] || 'unknown';
+      const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+      console.log(`[ReqLog] ${req.method} ${req.originalUrl} from=${ip} content-length=${cl} content-type=${ct}`);
+    }
+  } catch (e) {
+    console.error('[ReqLog] failure', e);
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
