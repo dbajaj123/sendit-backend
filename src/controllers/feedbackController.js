@@ -2,11 +2,24 @@ const Feedback = require('../models/Feedback');
 const QRCode = require('../models/QRCode');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
 // Configure multer for voice file uploads
+// Use absolute path for uploads so PM2/systemd cwd doesn't break file writes
+const UPLOAD_DIR = path.join(__dirname, '../../uploads/voice');
+// Ensure upload directory exists
+try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (e) { console.error('Failed to ensure upload dir', e); }
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/voice/');
+    try {
+      // Ensure directory exists at the time of each upload (handles race/perm issues)
+      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+      cb(null, UPLOAD_DIR);
+    } catch (e) {
+      console.error('Failed to ensure upload dir in destination()', e && e.stack ? e.stack : e);
+      cb(e);
+    }
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -44,7 +57,8 @@ exports.uploadVoice = (req, res, next) => {
     const handler = upload.single('voice');
     handler(req, res, function (err) {
       if (err) {
-        console.error('[UploadVoice] multer error:', err && err.code ? err.code : err);
+        console.error('[UploadVoice] multer error:', err && err.code ? err.code : (err && err.message) || err);
+        if (err && err.stack) console.error(err.stack);
         // Multer file size limit
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(413).json({ success: false, message: 'File too large' });
