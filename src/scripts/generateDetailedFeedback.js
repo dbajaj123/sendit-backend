@@ -52,8 +52,18 @@ async function run(){
 
   try{
     let final = [];
+    let rawAiOutput = null;
     if(process.env.GEMINI_API_KEY){
       const aiText = await summarizeWithOpenAI(`${prompt}\n\nFeedback:\n${sample}`, { max_tokens: 1200 });
+      rawAiOutput = aiText;
+      // persist raw AI output for debugging
+      try{
+        const rawDir = path.join(process.cwd(), 'reports');
+        if(!fs.existsSync(rawDir)) fs.mkdirSync(rawDir);
+        const rawFile = path.join(rawDir, `ai_raw_${businessId}_${Date.now()}.txt`);
+        fs.writeFileSync(rawFile, aiText);
+        console.log('Saved raw AI output to', rawFile);
+      }catch(e){ console.warn('Failed to save raw AI output', e); }
       let parsed = null;
       try{
         parsed = JSON.parse(aiText);
@@ -138,7 +148,7 @@ async function run(){
     const outDir = path.join(process.cwd(), 'reports');
     if(!fs.existsSync(outDir)) fs.mkdirSync(outDir);
     const filename = path.join(outDir, `detailed_feedback_${businessId}_${Date.now()}.json`);
-    fs.writeFileSync(filename, JSON.stringify({ businessId, generatedAt: new Date().toISOString(), recommendations: final }, null, 2));
+    fs.writeFileSync(filename, JSON.stringify({ businessId, generatedAt: new Date().toISOString(), recommendations: final, rawAiOutput }, null, 2));
 
     console.log('Detailed feedback recommendations written to', filename);
     await mongoose.disconnect();
