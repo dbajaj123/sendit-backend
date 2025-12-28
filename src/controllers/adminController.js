@@ -3,6 +3,8 @@ const Business = require('../models/Business');
 const QRCode = require('../models/QRCode');
 const Feedback = require('../models/Feedback');
 const { generateToken } = require('../utils/jwt');
+const fs = require('fs');
+const path = require('path');
 
 // @desc    Admin login
 // @route   POST /api/admin/login
@@ -415,4 +417,28 @@ exports.getAllQRCodes = async (req, res) => {
 // @access  Private (Admin)
 exports.getMetrics = async (req, res) => {
   return exports.getSystemStats(req, res);
+};
+
+// @desc    Get recent system logs (tail)
+// @route   GET /api/admin/logs
+// @access  Private (Admin)
+exports.getLogs = async (req, res) => {
+  try {
+    const maxLines = parseInt(req.query.lines || '200');
+    const logFile = process.env.LOG_FILE || path.join(process.cwd(), 'logs', 'server.log');
+
+    if (!fs.existsSync(logFile)) {
+      return res.status(200).json({ success: true, lines: [], message: 'Log file not found' });
+    }
+
+    const content = fs.readFileSync(logFile, 'utf8');
+    const allLines = content.split(/\r?\n/).filter(Boolean);
+    const start = Math.max(0, allLines.length - maxLines);
+    const slice = allLines.slice(start);
+
+    res.status(200).json({ success: true, lines: slice });
+  } catch (error) {
+    console.error('Get logs error:', error);
+    res.status(500).json({ success: false, message: 'Failed to read logs', error: error.message });
+  }
 };

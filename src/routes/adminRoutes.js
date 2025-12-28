@@ -9,6 +9,7 @@ const {
   getSystemStats,
   getAllQRCodes,
   getMetrics,
+  getLogs,
   createAdmin
 } = require('../controllers/adminController');
 const { protect, adminOnly, checkPermission } = require('../middleware/auth');
@@ -19,6 +20,9 @@ router.post('/login', login);
 // Additional admin endpoints for UI compatibility
 router.get('/qrs', protect, adminOnly, checkPermission('canManageQRCodes'), getAllQRCodes);
 router.get('/metrics', protect, adminOnly, checkPermission('canViewSystemLogs'), getMetrics);
+
+// Logs viewer
+router.get('/logs', protect, adminOnly, checkPermission('canViewSystemLogs'), getLogs);
 
 // Protected routes (Admins only)
 router.get('/businesses', protect, adminOnly, checkPermission('canManageBusinesses'), getAllBusinesses);
