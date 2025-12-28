@@ -4,6 +4,8 @@ const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/database');
 const { errorHandler, notFound } = require('./middleware/error');
+const fs = require('fs');
+const os = require('os');
 
 // Import routes
 const feedbackRoutes = require('./routes/feedbackRoutes');
@@ -59,7 +61,16 @@ app.use((req, res, next) => {
       const cl = req.headers['content-length'] || 'unknown';
       const ct = req.headers['content-type'] || 'unknown';
       const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-      console.log(`[ReqLog] ${req.method} ${req.originalUrl} from=${ip} content-length=${cl} content-type=${ct}`);
+      const msg = `[ReqLog] ${new Date().toISOString()} ${req.method} ${req.originalUrl} from=${ip} content-length=${cl} content-type=${ct}`;
+      console.log(msg);
+      try {
+        const logDir = path.join(__dirname, '../logs');
+        if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+        const logFile = path.join(logDir, 'request.log');
+        fs.appendFile(logFile, msg + os.EOL, err => { if (err) console.error('Failed to write request log', err); });
+      } catch (e) {
+        console.error('Request log file write failed', e);
+      }
     }
   } catch (e) {
     console.error('[ReqLog] failure', e);
