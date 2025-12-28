@@ -287,6 +287,68 @@ exports.getSystemStats = async (req, res) => {
   }
 };
 
+// Enhanced metrics endpoint returns simple timeseries and uptime
+exports.getMetrics = async (req, res) => {
+  try {
+    const days = parseInt(req.query.days || '14');
+    const from = new Date();
+    from.setDate(from.getDate() - (days - 1));
+
+    // Feedback timeseries per day
+    const feedbackTimeseries = await Feedback.aggregate([
+      { $match: { createdAt: { $gte: from } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // QR timeseries per day
+    const qrTimeseries = await QRCode.aggregate([
+      { $match: { createdAt: { $gte: from } } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } }
+    ]);
+
+    // Build full arrays (fill missing days)
+    const seriesDates = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(from);
+      d.setDate(from.getDate() + i);
+      seriesDates.push(d.toISOString().split('T')[0]);
+    }
+
+    const fbMap = Object.fromEntries(feedbackTimeseries.map(r => [r._id, r.count]));
+    const qrMap = Object.fromEntries(qrTimeseries.map(r => [r._id, r.count]));
+    const fbArray = seriesDates.map(d => fbMap[d] || 0);
+    const qrArray = seriesDates.map(d => qrMap[d] || 0);
+
+    // Basic uptime (process.uptime)
+    const uptimeSeconds = process.uptime ? Math.floor(process.uptime()) : 0;
+
+    // Reuse existing system stats for totals
+    const baseRes = await exports.getSystemStats ? null : null;
+    // We'll compute totals again for compactness
+    const totalBusinesses = await Business.countDocuments();
+    const totalFeedback = await Feedback.countDocuments();
+
+    res.status(200).json({
+      success: true,
+      data: {
+        businesses: { total: totalBusinesses },
+        feedback: { total: totalFeedback },
+        timeseries: {
+          dates: seriesDates,
+          feedback: fbArray,
+          qrs: qrArray
+        },
+        uptimeSeconds
+      }
+    });
+  } catch (error) {
+    console.error('Get metrics error:', error);
+    res.status(500).json({ success: false, message: 'Failed to get metrics', error: error.message });
+  }
+};
+
 // @desc    Create new admin (super-admin only)
 // @route   POST /api/admin/create
 // @access  Private (Super Admin)
