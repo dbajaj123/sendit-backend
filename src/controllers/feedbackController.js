@@ -33,6 +33,39 @@ const upload = multer({
 
 exports.uploadVoice = upload.single('voice');
 
+// Wrapper to log incoming upload details and handle multer errors with JSON responses
+exports.uploadVoice = (req, res, next) => {
+  try {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const cl = req.headers['content-length'] || 'unknown';
+    const ct = req.headers['content-type'] || 'unknown';
+    console.log(`[UploadVoice] incoming from=${ip} content-length=${cl} content-type=${ct}`);
+
+    const handler = upload.single('voice');
+    handler(req, res, function (err) {
+      if (err) {
+        console.error('[UploadVoice] multer error:', err && err.code ? err.code : err);
+        // Multer file size limit
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ success: false, message: 'File too large' });
+        }
+        // Other multer errors
+        return res.status(400).json({ success: false, message: err.message || 'Upload error' });
+      }
+      // Log actual received file size if available
+      if (req.file) {
+        console.log(`[UploadVoice] saved file=${req.file.filename} size=${req.file.size}`);
+      } else {
+        console.log('[UploadVoice] no file in request after multer');
+      }
+      next();
+    });
+  } catch (e) {
+    console.error('[UploadVoice] wrapper error', e);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 // @desc    Submit text feedback
 // @route   POST /api/feedback/text
 // @access  Public
