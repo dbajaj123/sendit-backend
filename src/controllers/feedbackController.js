@@ -20,9 +20,10 @@ const upload = multer({
   fileFilter: function (req, file, cb) {
     const allowedTypes = /mp3|wav|m4a|ogg|webm/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+    // Accept common audio/* mime types (some servers use 'audio/mpeg' etc.)
+    const mimetypeIsAudio = !!(file.mimetype && file.mimetype.startsWith('audio/'));
 
-    if (mimetype && extname) {
+    if (mimetypeIsAudio || extname) {
       return cb(null, true);
     } else {
       cb(new Error('Only audio files are allowed'));
