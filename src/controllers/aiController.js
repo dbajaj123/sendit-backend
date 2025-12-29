@@ -61,6 +61,55 @@ exports.analyzeNow = async function(req,res,next){
     const scores = texts.map(t=> sentiment.analyze(t).score );
     const avgSentiment = scores.reduce((a,b)=>a+b,0)/scores.length;
 
+    // categorize feedbacks and compute per-category parameter scores
+    function categorizeText(text, rating){
+      const t = (text||'').toLowerCase();
+      if (rating != null && Number(rating) <= 2) return 'complaint';
+      const complaintKeywords = ['bad','terrible','awful','not happy','disappointed','worst','complain','rude','slow','never'];
+      const suggestionKeywords = ['suggest','could','should','recommend','wish','would be nice','maybe','consider'];
+      for (const k of complaintKeywords) if (t.includes(k)) return 'complaint';
+      for (const k of suggestionKeywords) if (t.includes(k)) return 'suggestion';
+      if (t.length < 10) return 'feedback';
+      return 'feedback';
+    }
+
+    const paramKeywords = {
+      quality: ['quality','taste','flavor','undercooked','overcooked','cold','hot','fresh','stale','texture','presentation'],
+      food: ['food','dish','menu','portion','taste','flavor','ingredients','overcooked','undercooked','spicy','salty','bland'],
+      service: ['service','wait','staff','rude','friendly','slow','attentive','waiter','server','order','staffed','queue']
+    };
+
+    const categoriesText = { complaint: [], feedback: [], suggestion: [] };
+    items.forEach(it => {
+      const t = (it.text || it.content || it.message || '').toString();
+      const r = (it.rating != null) ? Number(it.rating) : null;
+      const cat = categorizeText(t, r);
+      categoriesText[cat].push({ text: t, rating: r });
+    });
+
+    const categoryScores = { complaint: {}, feedback: {}, suggestion: {} };
+    const categoryCounts = { complaint: 0, feedback: 0, suggestion: 0 };
+    const categoryAvgSent = { complaint: 0, feedback: 0, suggestion: 0 };
+
+    for (const cat of ['complaint','feedback','suggestion']){
+      const list = categoriesText[cat];
+      categoryCounts[cat] = list.length;
+      const sents = list.map(x=> sentiment.analyze(x.text).score );
+      const avg = sents.length ? sents.reduce((a,b)=>a+b,0)/sents.length : 0;
+      categoryAvgSent[cat] = avg;
+      // per-parameter
+      for (const param of ['quality','food','service']){
+        const kw = paramKeywords[param];
+        const subset = list.filter(x => kw.some(k => (x.text||'').toLowerCase().includes(k)));
+        const ps = subset.map(x=> sentiment.analyze(x.text).score);
+        let pavg = ps.length ? ps.reduce((a,b)=>a+b,0)/ps.length : avg;
+        // normalize to 0-10 (sentiment ~ -5..5 => map to 0..10)
+        if (pavg > 5) pavg = 5; if (pavg < -5) pavg = -5;
+        const out = Math.round((pavg + 5) * 10) / 10.0; // one decimal
+        categoryScores[cat][param] = out;
+      }
+    }
+
     // keywords
     const keywords = extractKeywords(corpus, 12);
 
@@ -145,6 +194,7 @@ exports.analyzeNow = async function(req,res,next){
       trends,
       aiInsights: aiInsights || null,
       stats: { totalFeedback: items.length, avgSentiment },
+      categories: { counts: categoryCounts, avgSentiment: categoryAvgSent, scores: categoryScores },
       meta: { generatedBy: process.env.GEMINI_API_KEY ? 'gemini-assisted-v1' : 'local-nlp-v1' }
     });
 
