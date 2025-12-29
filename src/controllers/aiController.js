@@ -138,6 +138,7 @@ exports.analyzeNow = async function(req,res,next){
         const sample = texts.slice(0,100).join('\n\n');
           const prompt = `You are an assistant that outputs STRICT JSON only. Produce an object with keys: "summary" (2-4 sentences), "recommendations" (array of {advice, topics, actions}), "trends" (array of {label, recommendation}), and "categories" which must contain a "scores" object. "scores" should map "complaint","feedback","suggestion" to objects with numeric "quality","food","service" values between 0 and 10. Do NOT include raw feedback examples. Feedback:\n${sample}`;
         const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 800 });
+        console.log('Gemini raw output:', aiText);
         // try to extract JSON from AI output
         let parsed = null;
         try{ parsed = JSON.parse(aiText); }catch(e){
@@ -150,6 +151,7 @@ exports.analyzeNow = async function(req,res,next){
           }
         }
         if(parsed){
+          console.log('Gemini parsed JSON:', parsed);
           const aiSummary = parsed.summary || (parsed.recommendations ? parsed.recommendations.map(r=>r.advice).join('\n') : null) || parsed.advice || null;
           if(aiSummary) summary = (typeof aiSummary === 'string') ? aiSummary : Array.isArray(aiSummary) ? aiSummary.join('\n') : summary;
           if(Array.isArray(parsed.trends)){
@@ -191,11 +193,12 @@ exports.analyzeNow = async function(req,res,next){
                       if(typeof v === 'number' && !isNaN(v)){
                         const nv = Math.max(0, Math.min(10, v));
                         categoryScores[cat][param] = Math.round(nv*10)/10;
-                      }
+                          }
                     });
                   }
                 });
               }
+                  console.log('categoryScores after LLM parse:', categoryScores);
             }catch(e){ console.warn('Failed to apply parsed category scores', e); }
         }
       }catch(e){ console.error('Gemini summarize failed', e); }
