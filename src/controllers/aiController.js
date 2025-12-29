@@ -115,7 +115,7 @@ exports.analyzeNow = async function(req,res,next){
 
     // Build recommendation-focused summary and trends (do NOT include raw feedback examples)
     const topKeywords = keywords.slice(0,6);
-    const trends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
+    let trends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
 
     // Local summary: concise recommendations (no raw customer text)
     // Build recommendations per keyword, but avoid repeating identical advice strings
