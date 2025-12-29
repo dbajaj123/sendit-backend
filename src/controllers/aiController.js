@@ -154,6 +154,10 @@ exports.analyzeNow = async function(req,res,next){
           if(Array.isArray(parsed.trends)){
             const mapped = parsed.trends.map(t => ({ label: t.label, recommendation: t.recommendation || adviceForKeyword(t.label || '') }));
             const trendMap = new Map();
+            mapped.forEach(t => {
+              if(trendMap.has(t.recommendation)){
+                trendMap.get(t.recommendation).labels.push(t.label);
+              } else {
                 trendMap.set(t.recommendation, { recommendation: t.recommendation, labels: [t.label] });
               }
             });
