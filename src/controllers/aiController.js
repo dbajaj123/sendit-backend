@@ -239,6 +239,8 @@ exports.analyzeNow = async function(req,res,next){
       meta: { generatedBy: process.env.GEMINI_API_KEY ? 'gemini-assisted-v1' : 'local-nlp-v1' }
     });
 
+    try{ console.log('Report being returned (summary keys):', { businessId: report.businessId, generatedAt: report.generatedAt, categories: report.categories ? Object.keys(report.categories) : null }); }catch(_){}
+    try{ console.log('Report JSON preview:', JSON.stringify(report).slice(0,4000)); }catch(_){}
     return res.json({ success:true, report });
   }catch(e){ next(e); }
 };
