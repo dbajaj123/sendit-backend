@@ -151,6 +151,26 @@ exports.analyzeNow = async function(req,res,next){
           }
         }
         if(parsed){
+          // If the model returned a JSON string inside the `summary` field (some models wrap JSON in code fences),
+          // try to extract and parse that inner JSON and merge useful keys (like categories.scores).
+          try{
+            if(parsed.summary && typeof parsed.summary === 'string'){
+              const s = parsed.summary.trim();
+              const innerMatch = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || s.match(/(\{[\s\S]*\})/);
+              if(innerMatch && innerMatch[1]){
+                try{
+                  const inner = JSON.parse(innerMatch[1]);
+                  console.log('Gemini inner parsed JSON extracted from summary:', inner);
+                  // merge sensible fields
+                  if(inner.summary) parsed.summary = inner.summary;
+                  if(!parsed.recommendations && inner.recommendations) parsed.recommendations = inner.recommendations;
+                  if(!parsed.trends && inner.trends) parsed.trends = inner.trends;
+                  if(!parsed.categories && inner.categories) parsed.categories = inner.categories;
+                  if(!parsed.scores && inner.scores) parsed.scores = inner.scores;
+                }catch(e){ /* ignore inner parse errors */ }
+              }
+            }
+          }catch(e){ console.warn('Inner JSON extraction failed', e); }
           console.log('Gemini parsed JSON:', parsed);
           const aiSummary = parsed.summary || (parsed.recommendations ? parsed.recommendations.map(r=>r.advice).join('\n') : null) || parsed.advice || null;
           if(aiSummary) summary = (typeof aiSummary === 'string') ? aiSummary : Array.isArray(aiSummary) ? aiSummary.join('\n') : summary;
