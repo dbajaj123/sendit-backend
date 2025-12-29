@@ -115,7 +115,8 @@ exports.analyzeNow = async function(req,res,next){
 
     // Build recommendation-focused summary and trends (do NOT include raw feedback examples)
     const topKeywords = keywords.slice(0,6);
-    let trends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
+    const initialTrends = topKeywords.map(k => ({ label: k, recommendation: adviceForKeyword(k) }));
+    let finalTrends = initialTrends;
 
     // Local summary: concise recommendations (no raw customer text)
     // Build recommendations per keyword, but avoid repeating identical advice strings
@@ -135,7 +136,7 @@ exports.analyzeNow = async function(req,res,next){
     if(process.env.GEMINI_API_KEY){
       try{
         const sample = texts.slice(0,100).join('\n\n');
-        const prompt = `You are an assistant that outputs STRICT JSON only. Produce an object with keys: \"summary\" (2-4 sentences), \"recommendations\" (array of {advice, topics, actions}), and \"trends\" (array of {label, recommendation}). Do NOT include raw feedback examples. Feedback:\n${sample}`;
+          const prompt = `You are an assistant that outputs STRICT JSON only. Produce an object with keys: "summary" (2-4 sentences), "recommendations" (array of {advice, topics, actions}), "trends" (array of {label, recommendation}), and "categories" which must contain a "scores" object. "scores" should map "complaint","feedback","suggestion" to objects with numeric "quality","food","service" values between 0 and 10. Do NOT include raw feedback examples. Feedback:\n${sample}`;
         const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 800 });
         // try to extract JSON from AI output
         let parsed = null;
@@ -161,7 +162,7 @@ exports.analyzeNow = async function(req,res,next){
                 trendMap.set(t.recommendation, { recommendation: t.recommendation, labels: [t.label] });
               }
             });
-            trends = Array.from(trendMap.values()).map(v => ({ label: v.labels.join(', '), recommendation: v.recommendation }));
+            finalTrends = Array.from(trendMap.values()).map(v => ({ label: v.labels.join(', '), recommendation: v.recommendation }));
           }
           // Build aiInsights structure if recommendations provided
           if(Array.isArray(parsed.recommendations)){
@@ -179,6 +180,23 @@ exports.analyzeNow = async function(req,res,next){
             });
             var aiInsights = { source: 'gemini', recommendations: Array.from(map.values()) };
           }
+            // If model provided explicit category scores, apply them (ensure numeric and clamp 0..10)
+            try{
+              const p = parsed.categories && parsed.categories.scores ? parsed.categories.scores : (parsed.scores || parsed.category_scores || null);
+              if(p){
+                ['complaint','feedback','suggestion'].forEach(cat=>{
+                  if(p[cat]){
+                    ['quality','food','service'].forEach(param=>{
+                      const v = p[cat][param];
+                      if(typeof v === 'number' && !isNaN(v)){
+                        const nv = Math.max(0, Math.min(10, v));
+                        categoryScores[cat][param] = Math.round(nv*10)/10;
+                      }
+                    });
+                  }
+                });
+              }
+            }catch(e){ console.warn('Failed to apply parsed category scores', e); }
         }
       }catch(e){ console.error('Gemini summarize failed', e); }
     }
@@ -191,7 +209,7 @@ exports.analyzeNow = async function(req,res,next){
       periodStart: items.length? items[items.length-1].createdAt : undefined,
       periodEnd: items[0].createdAt,
       summary,
-      trends,
+      trends: finalTrends,
       aiInsights: aiInsights || null,
       stats: { totalFeedback: items.length, avgSentiment },
       categories: { counts: categoryCounts, avgSentiment: categoryAvgSent, scores: categoryScores },
