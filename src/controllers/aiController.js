@@ -206,7 +206,7 @@ exports.analyzeNow = async function(req,res,next){
       aiInsights: aiInsights || null,
       stats: { totalFeedback: items.length, avgSentiment },
       categories: { counts: categoryCounts, avgSentiment: categoryAvgSent, scores: categoryScores },
-      meta: { generatedBy: process.env.GEMINI_API_KEY ? 'gemini-assisted-v1' : 'local-nlp-v1' }
+      meta: { generatedBy: process.env.GEMINI_API_KEY ? (typeof llmFailed !== 'undefined' && llmFailed ? 'gemini-failed-v1' : 'gemini-assisted-v1') : 'local-nlp-v1' }
     });
 
     try{ console.log('Report being returned (summary keys):', { businessId: report.businessId, generatedAt: report.generatedAt, categories: report.categories ? Object.keys(report.categories) : null }); }catch(_){}
