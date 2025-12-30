@@ -142,14 +142,24 @@ exports.analyzeNow = async function(req,res,next){
       const prompt = `You are an assistant that MUST output STRICT, PARSABLE JSON ONLY (no surrounding markdown). Produce a single JSON object with these keys: \n- "summary": a short 2-4 sentence summary (string)\n- "recommendations": array of objects { "advice": string, "topics": [string], "actions": [string] }\n- "trends": array of { "label": string, "recommendation": string }\n- "categories": { "scores": { "complaint": { "quality": number, "food": number, "service": number }, "feedback": {...}, "suggestion": {...} } }\nDo NOT include raw customer text. Ensure numeric scores are between 0 and 10. Return only the JSON object. Feedback corpus:\n${sample}`;
 
       const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 1000 });
-      // Strict parse
+      // Try to extract a JSON object from the model output. Models sometimes wrap JSON in markdown fences.
       let parsed = null;
       try{
+        // quick direct parse
         parsed = JSON.parse(aiText);
-      }catch(e){
-        // If parsing fails, return an explicit error so caller can retry
-        console.error('Gemini output not valid JSON:', aiText);
-        return res.status(502).json({ success:false, message: 'AI returned invalid JSON' });
+      }catch(_){
+        try{
+          // strip code fences like ```json ... ``` or ``` ... ```
+          const fenceMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+          const candidate = (fenceMatch && fenceMatch[1]) ? fenceMatch[1].trim() : aiText;
+          // attempt to extract the first {...} block
+          const objMatch = candidate.match(/(\{[\s\S]*\})/);
+          const jsonText = objMatch ? objMatch[1] : candidate;
+          parsed = JSON.parse(jsonText);
+        }catch(e2){
+          console.error('Gemini output not valid JSON after extraction:', aiText);
+          return res.status(502).json({ success:false, message: 'AI returned invalid JSON' });
+        }
       }
 
       // Validate and map parsed structure
