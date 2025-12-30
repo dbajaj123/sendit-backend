@@ -185,7 +185,8 @@ exports.analyzeNow = async function(req,res,next){
     for(const tf of timeframes){
       const start = startForTimeframe(tf);
       const subset = start ? items.filter(it => new Date(it.createdAt) >= start) : items;
-      summaries[tf] = await generateSummaryForItems(subset);
+      const s = await generateSummaryForItems(subset);
+      summaries[tf] = s || { summary: '', recommendations: [], trends: [], raw: null };
     }
 
     try{
