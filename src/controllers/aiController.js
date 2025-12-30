@@ -133,95 +133,55 @@ exports.analyzeNow = async function(req,res,next){
     const uniqueRecs = Array.from(uniqueRecsMap.values());
     let summary = uniqueRecs.map((r,i) => `${i+1}. ${r.advice} (topics: ${r.topics.join(', ')})`).join('\n');
 
-    if(process.env.GEMINI_API_KEY){
+    if(!process.env.GEMINI_API_KEY){
+      return res.status(500).json({ success:false, message: 'GEMINI_API_KEY not configured on server' });
+    }
+
+    try{
+      const sample = texts.slice(0,200).join('\n\n');
+      const prompt = `You are an assistant that MUST output STRICT, PARSABLE JSON ONLY (no surrounding markdown). Produce a single JSON object with these keys: \n- "summary": a short 2-4 sentence summary (string)\n- "recommendations": array of objects { "advice": string, "topics": [string], "actions": [string] }\n- "trends": array of { "label": string, "recommendation": string }\n- "categories": { "scores": { "complaint": { "quality": number, "food": number, "service": number }, "feedback": {...}, "suggestion": {...} } }\nDo NOT include raw customer text. Ensure numeric scores are between 0 and 10. Return only the JSON object. Feedback corpus:\n${sample}`;
+
+      const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 1000 });
+      // Strict parse
+      let parsed = null;
       try{
-        const sample = texts.slice(0,100).join('\n\n');
-          const prompt = `You are an assistant that outputs STRICT JSON only. Produce an object with keys: "summary" (2-4 sentences), "recommendations" (array of {advice, topics, actions}), "trends" (array of {label, recommendation}), and "categories" which must contain a "scores" object. "scores" should map "complaint","feedback","suggestion" to objects with numeric "quality","food","service" values between 0 and 10. Do NOT include raw feedback examples. Feedback:\n${sample}`;
-        const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 800 });
-        console.log('Gemini raw output:', aiText);
-        // try to extract JSON from AI output
-        let parsed = null;
-        try{ parsed = JSON.parse(aiText); }catch(e){
-          // try simple extraction of JSON block
-          const m = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i) || aiText.match(/(\{[\s\S]*\})/);
-          if(m && m[1]){
-            try{ parsed = JSON.parse(m[1]); }catch(e2){ parsed = { summary: aiText }; }
-          } else {
-            parsed = { summary: aiText };
-          }
+        parsed = JSON.parse(aiText);
+      }catch(e){
+        // If parsing fails, return an explicit error so caller can retry
+        console.error('Gemini output not valid JSON:', aiText);
+        return res.status(502).json({ success:false, message: 'AI returned invalid JSON' });
+      }
+
+      // Validate and map parsed structure
+      if(parsed){
+        if(parsed.summary && typeof parsed.summary === 'string') summary = parsed.summary;
+        if(Array.isArray(parsed.trends)) finalTrends = parsed.trends.map(t => ({ label: t.label || '', recommendation: t.recommendation || '' }));
+        if(Array.isArray(parsed.recommendations)){
+          // normalize recommendations
+          const recs = parsed.recommendations.map(r => ({ advice: r.advice || '', topics: Array.isArray(r.topics) ? r.topics : [], actions: Array.isArray(r.actions) ? r.actions : [] }));
+          var aiInsights = { source: 'gemini', recommendations: recs };
         }
-        if(parsed){
-          // If the model returned a JSON string inside the `summary` field (some models wrap JSON in code fences),
-          // try to extract and parse that inner JSON and merge useful keys (like categories.scores).
-          try{
-            if(parsed.summary && typeof parsed.summary === 'string'){
-              const s = parsed.summary.trim();
-              const innerMatch = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/) || s.match(/(\{[\s\S]*\})/);
-              if(innerMatch && innerMatch[1]){
-                try{
-                  const inner = JSON.parse(innerMatch[1]);
-                  console.log('Gemini inner parsed JSON extracted from summary:', inner);
-                  // merge sensible fields
-                  if(inner.summary) parsed.summary = inner.summary;
-                  if(!parsed.recommendations && inner.recommendations) parsed.recommendations = inner.recommendations;
-                  if(!parsed.trends && inner.trends) parsed.trends = inner.trends;
-                  if(!parsed.categories && inner.categories) parsed.categories = inner.categories;
-                  if(!parsed.scores && inner.scores) parsed.scores = inner.scores;
-                }catch(e){ /* ignore inner parse errors */ }
-              }
-            }
-          }catch(e){ console.warn('Inner JSON extraction failed', e); }
-          console.log('Gemini parsed JSON:', parsed);
-          const aiSummary = parsed.summary || (parsed.recommendations ? parsed.recommendations.map(r=>r.advice).join('\n') : null) || parsed.advice || null;
-          if(aiSummary) summary = (typeof aiSummary === 'string') ? aiSummary : Array.isArray(aiSummary) ? aiSummary.join('\n') : summary;
-          if(Array.isArray(parsed.trends)){
-            const mapped = parsed.trends.map(t => ({ label: t.label, recommendation: t.recommendation || adviceForKeyword(t.label || '') }));
-            const trendMap = new Map();
-            mapped.forEach(t => {
-              if(trendMap.has(t.recommendation)){
-                trendMap.get(t.recommendation).labels.push(t.label);
-              } else {
-                trendMap.set(t.recommendation, { recommendation: t.recommendation, labels: [t.label] });
-              }
-            });
-            finalTrends = Array.from(trendMap.values()).map(v => ({ label: v.labels.join(', '), recommendation: v.recommendation }));
-          }
-          // Build aiInsights structure if recommendations provided
-          if(Array.isArray(parsed.recommendations)){
-            const recs = parsed.recommendations.map(r=>({ advice: r.advice||r.text||'', topics: r.topics||[], actions: r.actions||[] }));
-            // dedupe by advice
-            const map = new Map();
-            recs.forEach(r=>{
-              const key = (r.advice||'').trim();
-              if(!key) return;
-              if(map.has(key)){
-                const cur = map.get(key);
-                cur.topics = Array.from(new Set(cur.topics.concat(r.topics)));
-                cur.actions = Array.from(new Set(cur.actions.concat(r.actions)));
-              } else map.set(key, { advice: key, topics: Array.from(new Set(r.topics)), actions: Array.from(new Set(r.actions)) });
-            });
-            var aiInsights = { source: 'gemini', recommendations: Array.from(map.values()) };
-          }
-            // If model provided explicit category scores, apply them (ensure numeric and clamp 0..10)
-            try{
-              const p = parsed.categories && parsed.categories.scores ? parsed.categories.scores : (parsed.scores || parsed.category_scores || null);
-              if(p){
-                ['complaint','feedback','suggestion'].forEach(cat=>{
-                  if(p[cat]){
-                    ['quality','food','service'].forEach(param=>{
-                      const v = p[cat][param];
-                      if(typeof v === 'number' && !isNaN(v)){
-                        const nv = Math.max(0, Math.min(10, v));
-                        categoryScores[cat][param] = Math.round(nv*10)/10;
-                          }
-                    });
+        // apply category scores if provided
+        try{
+          const p = parsed.categories && parsed.categories.scores ? parsed.categories.scores : null;
+          if(p){
+            ['complaint','feedback','suggestion'].forEach(cat=>{
+              if(p[cat]){
+                ['quality','food','service'].forEach(param=>{
+                  const v = p[cat][param];
+                  if(typeof v === 'number' && !isNaN(v)){
+                    const nv = Math.max(0, Math.min(10, v));
+                    categoryScores[cat][param] = Math.round(nv*10)/10;
                   }
                 });
               }
-                  console.log('categoryScores after LLM parse:', categoryScores);
-            }catch(e){ console.warn('Failed to apply parsed category scores', e); }
-        }
-      }catch(e){ console.error('Gemini summarize failed', e); }
+            });
+          }
+        }catch(e){ console.warn('Failed to apply parsed category scores', e); }
+      }
+    }catch(e){
+      console.error('Gemini summarize failed', e);
+      return res.status(502).json({ success:false, message: 'AI request failed', error: e.toString() });
     }
 
     // `trends` already assembled above (either local or Gemini-assisted)
