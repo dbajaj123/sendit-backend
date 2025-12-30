@@ -45,6 +45,7 @@ function summarizeExtractive(text, keywords, sentenceLimit=5){
 
 exports.analyzeNow = async function(req,res,next){
   try{
+    const DEBUG_AI = process.env.DEBUG_AI === '1';
     const businessId = req.user?.businessId || req.body.businessId;
     if(!businessId) return res.status(400).json({ success:false, message:'businessId required' });
 
@@ -142,6 +143,7 @@ exports.analyzeNow = async function(req,res,next){
       const prompt = `You are an assistant that MUST output STRICT, PARSABLE JSON ONLY (no surrounding markdown). Produce a single JSON object with these keys: \n- "summary": a short 2-4 sentence summary (string)\n- "recommendations": array of objects { "advice": string, "topics": [string], "actions": [string] }\n- "trends": array of { "label": string, "recommendation": string }\n- "categories": { "scores": { "complaint": { "quality": number, "food": number, "service": number }, "feedback": {...}, "suggestion": {...} } }\nDo NOT include raw customer text. Ensure numeric scores are between 0 and 10. Return only the JSON object. Feedback corpus:\n${sample}`;
 
       const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 1000 });
+      if(DEBUG_AI) try{ console.log('Gemini full output:\n', aiText); }catch(_){ /* ignore logging errors */ }
       // Try to extract a JSON object from the model output. Models sometimes wrap JSON in markdown fences.
       let parsed = null;
       try{
