@@ -7,8 +7,10 @@ const ReportSchema = new Schema({
   periodStart: Date,
   periodEnd: Date,
   summary: String,
-  trends: [{ label: String, score: Number, examples: [String] }],
+  trends: [{ label: String, score: Number, examples: [Schema.Types.Mixed] }],
   stats: { type: Schema.Types.Mixed },
+  categories: { type: Schema.Types.Mixed },
+  aiInsights: { type: Schema.Types.Mixed },
   meta: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
