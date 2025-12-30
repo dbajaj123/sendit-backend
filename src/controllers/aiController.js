@@ -140,27 +140,47 @@ exports.analyzeNow = async function(req,res,next){
 
     try{
       const sample = texts.slice(0,200).join('\n\n');
-      const prompt = `You are an assistant that MUST output STRICT, PARSABLE JSON ONLY (no surrounding markdown). Produce a single JSON object with these keys: \n- "summary": a short 2-4 sentence summary (string)\n- "recommendations": array of objects { "advice": string, "topics": [string], "actions": [string] }\n- "trends": array of { "label": string, "recommendation": string }\n- "categories": { "scores": { "complaint": { "quality": number, "food": number, "service": number }, "feedback": {...}, "suggestion": {...} } }\nDo NOT include raw customer text. Ensure numeric scores are between 0 and 10. Return only the JSON object. Feedback corpus:\n${sample}`;
+      // Request the new categories schema and distribution counts explicitly
+      const prompt = `You are an assistant that MUST output STRICT, PARSABLE JSON ONLY (no surrounding markdown). Produce a single JSON object with these keys:\n- "summary": a short 2-4 sentence summary (string)\n- "recommendations": array of objects { "advice": string, "topics": [string], "actions": [string] }\n- "trends": array of { "label": string, "recommendation": string }\n- "categories": { "scores": { "services": { "cleanliness": number, "waiting": number, "time": number, "billing": number }, "product": { "quality": number, "price": number }, "staff": { "behavior": number, "skills": number } }, "distribution": { "complaints": number, "suggestions": number, "feedback": number } }\nDo NOT include raw customer text. Ensure numeric scores are between 0 and 10. Return only the JSON object (compact or pretty-printed). Feedback corpus:\n${sample}`;
 
-      const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 1000 });
+      const aiText = await summarizeWithOpenAI(prompt, { max_tokens: 1500 });
       if(DEBUG_AI) try{ console.log('Gemini full output:\n', aiText); }catch(_){ /* ignore logging errors */ }
-      // Try to extract a JSON object from the model output. Models sometimes wrap JSON in markdown fences.
+
+      // robust extractor: find first balanced JSON object (handles fences and pretty-printing)
+      function findFirstJson(str){
+        if(!str || typeof str !== 'string') return null;
+        // strip common markdown fences first
+        const stripped = str.replace(/```[\s\S]*?```/g, m => m.replace(/```/g, ''));
+        const start = stripped.indexOf('{');
+        if(start === -1) return null;
+        let depth = 0;
+        for(let i=start;i<stripped.length;i++){
+          const ch = stripped[i];
+          if(ch === '{') depth++;
+          else if(ch === '}') depth--;
+          if(depth === 0){
+            return stripped.substring(start, i+1);
+          }
+        }
+        return null; // truncated
+      }
+
       let parsed = null;
+      let llmFailed = false;
       try{
-        // quick direct parse
+        // direct parse first
         parsed = JSON.parse(aiText);
       }catch(_){
         try{
-          // strip code fences like ```json ... ``` or ``` ... ```
-          const fenceMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-          const candidate = (fenceMatch && fenceMatch[1]) ? fenceMatch[1].trim() : aiText;
-          // attempt to extract the first {...} block
-          const objMatch = candidate.match(/(\{[\s\S]*\})/);
-          const jsonText = objMatch ? objMatch[1] : candidate;
-          parsed = JSON.parse(jsonText);
+          const jsonText = findFirstJson(aiText) || aiText;
+          // sanitize common trailing commas before parse
+          const sanitized = jsonText.replace(/,\s*([}\]])/g, '$1');
+          parsed = JSON.parse(sanitized);
         }catch(e2){
-          console.error('Gemini output not valid JSON after extraction:', aiText);
-          return res.status(502).json({ success:false, message: 'AI returned invalid JSON' });
+          // don't abort — mark as failed and continue with local fallback
+          llmFailed = true;
+          if(DEBUG_AI) console.error('Gemini output not valid JSON after extraction:', aiText);
+          // leave parsed null and continue
         }
       }
 
@@ -173,23 +193,33 @@ exports.analyzeNow = async function(req,res,next){
           const recs = parsed.recommendations.map(r => ({ advice: r.advice || '', topics: Array.isArray(r.topics) ? r.topics : [], actions: Array.isArray(r.actions) ? r.actions : [] }));
           var aiInsights = { source: 'gemini', recommendations: recs };
         }
-        // apply category scores if provided
+
+        // apply category scores if provided (new schema: services/product/staff)
         try{
           const p = parsed.categories && parsed.categories.scores ? parsed.categories.scores : null;
           if(p){
-            ['complaint','feedback','suggestion'].forEach(cat=>{
-              if(p[cat]){
-                ['quality','food','service'].forEach(param=>{
-                  const v = p[cat][param];
-                  if(typeof v === 'number' && !isNaN(v)){
-                    const nv = Math.max(0, Math.min(10, v));
-                    categoryScores[cat][param] = Math.round(nv*10)/10;
-                  }
-                });
-              }
-            });
+            // Build a normalized scores object for persistence
+            var categoryScoresNew = { services: {}, product: {}, staff: {} };
+            if(p.services){ Object.keys(p.services).forEach(k=>{ const v = Number(p.services[k]); if(!isNaN(v)) categoryScoresNew.services[k] = Math.max(0, Math.min(10, v)); }); }
+            if(p.product){ Object.keys(p.product).forEach(k=>{ const v = Number(p.product[k]); if(!isNaN(v)) categoryScoresNew.product[k] = Math.max(0, Math.min(10, v)); }); }
+            if(p.staff){ Object.keys(p.staff).forEach(k=>{ const v = Number(p.staff[k]); if(!isNaN(v)) categoryScoresNew.staff[k] = Math.max(0, Math.min(10, v)); }); }
+            // also accept legacy complaint/feedback/suggestion scores if present and map them under that key
+            ['complaint','feedback','suggestion'].forEach(cat=>{ if(p[cat]) categoryScoresNew[cat] = p[cat]; });
+            // apply distribution if provided
+            if(parsed.categories.distribution){
+              const d = parsed.categories.distribution;
+              if(typeof d.complaints === 'number') categoryCounts.complaint = d.complaints;
+              if(typeof d.suggestions === 'number') categoryCounts.suggestion = d.suggestions;
+              if(typeof d.feedback === 'number') categoryCounts.feedback = d.feedback;
+            }
+            // attach to categories for persistence later
+            var parsedCategoryScoresForReport = categoryScoresNew;
           }
         }catch(e){ console.warn('Failed to apply parsed category scores', e); }
+      }
+      // if LLM failed to produce valid JSON, save raw text into meta for debugging when DEBUG_AI
+      if((llmFailed || DEBUG_AI) && aiText){
+        try{ if(!parsed) console.warn('LLM produced invalid JSON; saved raw output to meta.rawAiText'); }catch(_){}
       }
     }catch(e){
       console.error('Gemini summarize failed', e);
@@ -197,6 +227,17 @@ exports.analyzeNow = async function(req,res,next){
     }
 
     // `trends` already assembled above (either local or Gemini-assisted)
+
+    const categoriesForReport = {
+      counts: categoryCounts,
+      avgSentiment: categoryAvgSent,
+      scores: (typeof parsedCategoryScoresForReport !== 'undefined' && parsedCategoryScoresForReport) ? parsedCategoryScoresForReport : categoryScores
+    };
+
+    const metaForReport = { generatedBy: process.env.GEMINI_API_KEY ? (typeof llmFailed !== 'undefined' && llmFailed ? 'gemini-failed-v1' : 'gemini-assisted-v1') : 'local-nlp-v1' };
+    if((typeof llmFailed !== 'undefined' && llmFailed) || DEBUG_AI){
+      metaForReport.rawAiText = (typeof aiText !== 'undefined') ? aiText : null;
+    }
 
     const report = await Report.create({
       businessId,
@@ -207,8 +248,8 @@ exports.analyzeNow = async function(req,res,next){
       trends: finalTrends,
       aiInsights: aiInsights || null,
       stats: { totalFeedback: items.length, avgSentiment },
-      categories: { counts: categoryCounts, avgSentiment: categoryAvgSent, scores: categoryScores },
-      meta: { generatedBy: process.env.GEMINI_API_KEY ? (typeof llmFailed !== 'undefined' && llmFailed ? 'gemini-failed-v1' : 'gemini-assisted-v1') : 'local-nlp-v1' }
+      categories: categoriesForReport,
+      meta: metaForReport
     });
 
     try{ console.log('Report being returned (summary keys):', { businessId: report.businessId, generatedAt: report.generatedAt, categories: report.categories ? Object.keys(report.categories) : null }); }catch(_){}
