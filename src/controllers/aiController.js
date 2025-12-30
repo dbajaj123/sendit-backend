@@ -52,24 +52,8 @@ exports.analyzeNow = async function(req,res,next){
     const biz = await Business.findById(businessId).lean();
     if(!biz) return res.status(404).json({ success:false, message:'Business not found' });
 
-    // Timeframe filtering: daily, weekly, monthly (default: all)
-    const timeframe = req.body.timeframe || 'all';
-    const now = new Date();
-    let startDate = null;
-    if(timeframe === 'daily'){
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    } else if(timeframe === 'weekly'){
-      const dayOfWeek = now.getDay();
-      startDate = new Date(now);
-      startDate.setDate(now.getDate() - dayOfWeek);
-      startDate.setHours(0,0,0,0);
-    } else if(timeframe === 'monthly'){
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
-
-    const query = { businessId };
-    if(startDate) query.createdAt = { $gte: startDate };
-    const items = await Feedback.find(query).sort({ createdAt:-1 }).limit(500).lean();
+    // Fetch all recent feedback (timeframe will only affect generated summaries)
+    const items = await Feedback.find({ businessId }).sort({ createdAt:-1 }).limit(500).lean();
     if(!items.length) return res.json({ success:true, message:'No feedback', data: null });
 
     const texts = items.map(i=> (i.text || i.content || i.message || '') ).filter(Boolean);
@@ -153,6 +137,55 @@ exports.analyzeNow = async function(req,res,next){
 
     if(!process.env.GEMINI_API_KEY){
       return res.status(500).json({ success:false, message: 'GEMINI_API_KEY not configured on server' });
+    }
+
+    // Generate summaries for multiple timeframes (all, daily, weekly, monthly)
+    const now = new Date();
+    function startForTimeframe(tf){
+      if(tf === 'daily') return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if(tf === 'weekly'){ const day = now.getDay(); const d = new Date(now); d.setDate(now.getDate() - day); d.setHours(0,0,0,0); return d; }
+      if(tf === 'monthly') return new Date(now.getFullYear(), now.getMonth(), 1);
+      return null; // all
+    }
+
+    const timeframes = ['all','daily','weekly','monthly'];
+    const summaries = {};
+
+    async function generateSummaryForItems(subItems){
+      if(!subItems || !subItems.length) return null;
+      const sample = subItems.map(i=> (i.text || i.content || i.message || '') ).filter(Boolean).slice(0,200).join('\n\n');
+      const prompt = `You are an assistant that MUST output STRICT, PARSABLE JSON ONLY (no surrounding markdown). Produce a single JSON object with these keys:\n- "summary": a short 2-4 sentence summary (string)\n- "recommendations": array of objects { "advice": string, "topics": [string], "actions": [string] }\n- "trends": array of { "label": string, "recommendation": string }\nDo NOT include raw customer text. Ensure numeric scores are between 0 and 10. Return only the JSON object. Feedback corpus:\n${sample}`;
+      let localAiText = null;
+      try{
+        localAiText = await summarizeWithOpenAI(prompt, { max_tokens: 1200 });
+        if(DEBUG_AI) console.log('Gemini timeframe output:\n', localAiText);
+        // attempt parse using existing helper logic
+        const findFirstJson = (str) => {
+          if(!str || typeof str !== 'string') return null;
+          const stripped = str.replace(/```[\s\S]*?```/g, m => m.replace(/```/g, ''));
+          const start = stripped.indexOf('{'); if(start === -1) return null;
+          let depth = 0; for(let i=start;i<stripped.length;i++){ const ch = stripped[i]; if(ch === '{') depth++; else if(ch === '}') depth--; if(depth === 0) return stripped.substring(start, i+1); }
+          return null;
+        };
+        let parsed = null;
+        try{ parsed = JSON.parse(localAiText); }catch(_){ try{ const jsonText = findFirstJson(localAiText) || localAiText; const sanitized = jsonText.replace(/,\s*([}\]])/g, '$1'); parsed = JSON.parse(sanitized); }catch(_){ parsed = null; } }
+        if(parsed){
+          return { summary: parsed.summary || '', recommendations: Array.isArray(parsed.recommendations)? parsed.recommendations: [], trends: Array.isArray(parsed.trends)? parsed.trends: [] , raw: localAiText };
+        }
+      }catch(e){ if(DEBUG_AI) console.error('Timeframe LLM error', e); }
+      // fallback: build a local extractive summary using keywords
+      const texts = subItems.map(i=> (i.text || i.content || i.message || '') ).filter(Boolean).join('\n');
+      const kws = extractKeywords(texts, 6);
+      const recs = kws.map(k => ({ advice: adviceForKeyword(k), topics: [k], actions: [] }));
+      const summ = recs.map((r,i)=> `${i+1}. ${r.advice} (topics: ${r.topics.join(', ')})`).join('\n');
+      return { summary: summ, recommendations: recs, trends: kws.map(k=>({ label:k, recommendation: adviceForKeyword(k) })), raw: null };
+    }
+
+    // generate per-timeframe summaries
+    for(const tf of timeframes){
+      const start = startForTimeframe(tf);
+      const subset = start ? items.filter(it => new Date(it.createdAt) >= start) : items;
+      summaries[tf] = await generateSummaryForItems(subset);
     }
 
     try{
@@ -252,12 +285,14 @@ exports.analyzeNow = async function(req,res,next){
     };
 
     const metaForReport = { 
-      generatedBy: process.env.GEMINI_API_KEY ? (typeof llmFailed !== 'undefined' && llmFailed ? 'gemini-failed-v1' : 'gemini-assisted-v1') : 'local-nlp-v1',
-      timeframe: timeframe || 'all'
+      generatedBy: process.env.GEMINI_API_KEY ? (typeof llmFailed !== 'undefined' && llmFailed ? 'gemini-failed-v1' : 'gemini-assisted-v1') : 'local-nlp-v1'
     };
     if((typeof llmFailed !== 'undefined' && llmFailed) || DEBUG_AI){
       metaForReport.rawAiText = (typeof aiText !== 'undefined') ? aiText : null;
     }
+
+    // prefer LLM-generated overall summary if available
+    if(summaries && summaries['all'] && summaries['all'].summary) summary = summaries['all'].summary;
 
     const report = await Report.create({
       businessId,
@@ -267,6 +302,7 @@ exports.analyzeNow = async function(req,res,next){
       summary,
       trends: finalTrends,
       aiInsights: aiInsights || null,
+      summaries: summaries,
       stats: { totalFeedback: items.length, avgSentiment },
       categories: categoriesForReport,
       meta: metaForReport
