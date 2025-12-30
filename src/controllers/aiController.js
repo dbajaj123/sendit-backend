@@ -256,12 +256,78 @@ exports.analyzeNow = async function(req,res,next){
             if(p.staff){ Object.keys(p.staff).forEach(k=>{ const v = Number(p.staff[k]); if(!isNaN(v)) categoryScoresNew.staff[k] = Math.max(0, Math.min(10, v)); }); }
             // also accept legacy complaint/feedback/suggestion scores if present and map them under that key
             ['complaint','feedback','suggestion'].forEach(cat=>{ if(p[cat]) categoryScoresNew[cat] = p[cat]; });
-            // apply distribution if provided
-            if(parsed.categories.distribution){
+            // apply distribution if provided — normalize to integer counts that sum to totalFeedback
+            if(parsed.categories && parsed.categories.distribution){
               const d = parsed.categories.distribution;
-              if(typeof d.complaints === 'number') categoryCounts.complaint = d.complaints;
-              if(typeof d.suggestions === 'number') categoryCounts.suggestion = d.suggestions;
-              if(typeof d.feedback === 'number') categoryCounts.feedback = d.feedback;
+              const total = items.length || 0;
+              const getRaw = (keys) => { for(const k of keys) if(d[k] !== undefined && d[k] !== null) return d[k]; return undefined; };
+              const rawVals = {
+                complaint: getRaw(['complaint','complaints']),
+                suggestion: getRaw(['suggestion','suggestions']),
+                feedback: getRaw(['feedback'])
+              };
+
+              const interpret = (v) => {
+                if(v === undefined || v === null) return NaN;
+                if(typeof v === 'string'){
+                  const s = v.trim();
+                  if(s.endsWith('%')){
+                    const num = parseFloat(s.replace('%',''));
+                    if(isNaN(num)) return NaN;
+                    return (num/100) * total;
+                  }
+                  const num = parseFloat(s);
+                  if(isNaN(num)) return NaN;
+                  v = num;
+                }
+                if(typeof v === 'number'){
+                  if(v <= 1) return v * total; // proportion
+                  if(Number.isInteger(v) && v <= total) return v; // raw count
+                  if(v > total && v <= 100) return (v/100) * total; // percentage like 35 -> 35% of total
+                  // fallback: cap at total
+                  return Math.min(v, total);
+                }
+                return NaN;
+              };
+
+              const interpreted = {};
+              ['complaint','suggestion','feedback'].forEach(k=>{ const val = interpret(rawVals[k]); interpreted[k] = isNaN(val) ? null : val; });
+
+              // Build float counts (fall back to existing categoryCounts if missing)
+              const floatCounts = {};
+              ['complaint','suggestion','feedback'].forEach(k=>{ floatCounts[k] = (interpreted[k] != null) ? interpreted[k] : (categoryCounts[k] || 0); });
+
+              // Round and adjust residual to ensure sum == total
+              const rounded = {}; let sumRounded = 0; const fractions = [];
+              Object.keys(floatCounts).forEach(k=>{ const f = floatCounts[k]; const r = Math.round(f); rounded[k] = Math.max(0, r); sumRounded += rounded[k]; fractions.push({ k, frac: f - Math.floor(f), raw: f }); });
+              let residual = total - sumRounded;
+              if(residual !== 0){
+                if(residual > 0){
+                  // distribute +1 to categories with largest fractional parts first
+                  fractions.sort((a,b)=> b.frac - a.frac);
+                  let i = 0;
+                  while(residual > 0){
+                    const key = fractions[i % fractions.length].k;
+                    rounded[key] = (rounded[key] || 0) + 1;
+                    residual--; i++;
+                  }
+                } else {
+                  // need to subtract excess: remove from largest counts first
+                  const keysBySize = Object.keys(rounded).sort((a,b)=> rounded[b] - rounded[a]);
+                  let idx = 0;
+                  while(residual < 0 && idx < keysBySize.length){
+                    const key = keysBySize[idx];
+                    if(rounded[key] > 0){ rounded[key] -= 1; residual++; }
+                    else idx++;
+                    // if we've iterated all keys and still have residual, break to avoid infinite loop
+                    if(idx >= keysBySize.length && residual < 0) break;
+                  }
+                }
+              }
+
+              categoryCounts.complaint = rounded.complaint || 0;
+              categoryCounts.suggestion = rounded.suggestion || 0;
+              categoryCounts.feedback = rounded.feedback || 0;
             }
             // attach to categories for persistence later
             var parsedCategoryScoresForReport = categoryScoresNew;
