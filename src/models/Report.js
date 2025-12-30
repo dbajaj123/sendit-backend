@@ -11,6 +11,7 @@ const ReportSchema = new Schema({
   stats: { type: Schema.Types.Mixed },
   categories: { type: Schema.Types.Mixed },
   aiInsights: { type: Schema.Types.Mixed },
+  summaries: { type: Schema.Types.Mixed },
   meta: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
