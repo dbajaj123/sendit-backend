@@ -52,7 +52,24 @@ exports.analyzeNow = async function(req,res,next){
     const biz = await Business.findById(businessId).lean();
     if(!biz) return res.status(404).json({ success:false, message:'Business not found' });
 
-    const items = await Feedback.find({ businessId }).sort({ createdAt:-1 }).limit(500).lean();
+    // Timeframe filtering: daily, weekly, monthly (default: all)
+    const timeframe = req.body.timeframe || 'all';
+    const now = new Date();
+    let startDate = null;
+    if(timeframe === 'daily'){
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if(timeframe === 'weekly'){
+      const dayOfWeek = now.getDay();
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - dayOfWeek);
+      startDate.setHours(0,0,0,0);
+    } else if(timeframe === 'monthly'){
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    const query = { businessId };
+    if(startDate) query.createdAt = { $gte: startDate };
+    const items = await Feedback.find(query).sort({ createdAt:-1 }).limit(500).lean();
     if(!items.length) return res.json({ success:true, message:'No feedback', data: null });
 
     const texts = items.map(i=> (i.text || i.content || i.message || '') ).filter(Boolean);
@@ -234,7 +251,10 @@ exports.analyzeNow = async function(req,res,next){
       scores: (typeof parsedCategoryScoresForReport !== 'undefined' && parsedCategoryScoresForReport) ? parsedCategoryScoresForReport : categoryScores
     };
 
-    const metaForReport = { generatedBy: process.env.GEMINI_API_KEY ? (typeof llmFailed !== 'undefined' && llmFailed ? 'gemini-failed-v1' : 'gemini-assisted-v1') : 'local-nlp-v1' };
+    const metaForReport = { 
+      generatedBy: process.env.GEMINI_API_KEY ? (typeof llmFailed !== 'undefined' && llmFailed ? 'gemini-failed-v1' : 'gemini-assisted-v1') : 'local-nlp-v1',
+      timeframe: timeframe || 'all'
+    };
     if((typeof llmFailed !== 'undefined' && llmFailed) || DEBUG_AI){
       metaForReport.rawAiText = (typeof aiText !== 'undefined') ? aiText : null;
     }
