@@ -258,7 +258,7 @@ exports.getSystemStats = async (req, res) => {
 
     // Get recent businesses
     const recentBusinesses = await Business.find()
-      .select('businessName ownerName email createdAt isVerified')
+      .select('businessName ownerName email createdAt isVerified verificationCode')
       .sort({ createdAt: -1 })
       .limit(5);
 
