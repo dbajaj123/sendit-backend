@@ -41,6 +41,11 @@ const businessSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  verificationCode: {
+    type: String,
+    trim: true,
+    default: null
+  },
   isActive: {
     type: Boolean,
     default: true

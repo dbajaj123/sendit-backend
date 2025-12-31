@@ -18,7 +18,8 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Create business
+    // Create business and generate a 4-digit verification code
+    const verificationCode = Math.floor(1000 + Math.random() * 9000).toString();
     const business = await Business.create({
       businessName,
       ownerName,
@@ -26,7 +27,8 @@ exports.register = async (req, res) => {
       password,
       phone,
       address,
-      businessType
+      businessType,
+      verificationCode
     });
 
     // Generate token
@@ -41,7 +43,8 @@ exports.register = async (req, res) => {
         businessName: business.businessName,
         ownerName: business.ownerName,
         email: business.email,
-        isVerified: business.isVerified
+        isVerified: business.isVerified,
+        verificationCode: business.verificationCode
       }
     });
   } catch (error) {
@@ -51,6 +54,33 @@ exports.register = async (req, res) => {
       message: 'Failed to register business',
       error: error.message
     });
+  }
+};
+
+// @desc    Verify business using 4-digit code (owner)
+// @route   POST /api/business/verify
+// @access  Private (Business)
+exports.verifyCode = async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ success: false, message: 'Code is required' });
+
+    const business = await Business.findById(req.business._id);
+    if (!business) return res.status(404).json({ success: false, message: 'Business not found' });
+
+    if (business.isVerified) return res.status(200).json({ success: true, message: 'Already verified' });
+
+    if (business.verificationCode && business.verificationCode === String(code).trim()) {
+      business.isVerified = true;
+      business.verificationCode = null;
+      await business.save();
+      return res.status(200).json({ success: true, message: 'Business verified successfully', data: { isVerified: true } });
+    }
+
+    return res.status(400).json({ success: false, message: 'Invalid verification code' });
+  } catch (error) {
+    console.error('Verify code error:', error);
+    res.status(500).json({ success: false, message: 'Verification failed', error: error.message });
   }
 };
 

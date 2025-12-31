@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   register,
   login,
+  verifyCode,
   getProfile,
   updateProfile,
   getFeedback,
@@ -15,6 +16,7 @@ const { protect, businessOnly } = require('../middleware/auth');
 // Public routes
 router.post('/register', register);
 router.post('/login', login);
+router.post('/verify', protect, businessOnly, verifyCode);
 
 // Protected routes (Business owners only)
 router.get('/profile', protect, businessOnly, getProfile);

@@ -184,6 +184,10 @@ exports.verifyBusiness = async (req, res) => {
     }
 
     business.isVerified = isVerified;
+    // If admin manually verifies, clear any existing verification code
+    if (isVerified) {
+      business.verificationCode = null;
+    }
     await business.save();
 
     res.status(200).json({
