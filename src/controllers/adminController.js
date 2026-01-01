@@ -105,7 +105,7 @@ exports.getAllBusinesses = async (req, res) => {
     }
 
     const businesses = await Business.find(query)
-      .select('businessName ownerName email phone address businessType createdAt isVerified isActive verificationCode')
+      .select('businessName ownerName email phone address businessType createdAt isVerified isActive')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -184,10 +184,6 @@ exports.verifyBusiness = async (req, res) => {
     }
 
     business.isVerified = isVerified;
-    // If admin manually verifies, clear any existing verification code
-    if (isVerified) {
-      business.verificationCode = null;
-    }
     await business.save();
 
     res.status(200).json({
@@ -258,7 +254,7 @@ exports.getSystemStats = async (req, res) => {
 
     // Get recent businesses
     const recentBusinesses = await Business.find()
-      .select('businessName ownerName email phone createdAt isVerified verificationCode')
+      .select('businessName ownerName email phone createdAt isVerified')
       .sort({ createdAt: -1 })
       .limit(5);
 
