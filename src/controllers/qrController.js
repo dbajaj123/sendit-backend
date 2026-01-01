@@ -140,7 +140,7 @@ exports.mapQRCodesToBusiness = async (req, res) => {
 
     // Map QR codes to business
     const result = await QRCode.updateMany(
-      { qrId: { $in: qrIds }, isMapped: false },
+      { qrId: { $in: qrIds } },
       {
         $set: {
           businessId,
@@ -153,7 +153,7 @@ exports.mapQRCodesToBusiness = async (req, res) => {
     if (result.matchedCount === 0) {
       return res.status(404).json({
         success: false,
-        message: 'No unmapped QR codes found with the provided IDs'
+        message: 'No QR codes found with the provided IDs'
       });
     }
 
