@@ -227,9 +227,10 @@ exports.getQRCodeByQrId = async (req, res) => {
       success: true,
       data: {
         qrId: qrCode.qrId,
-        businessName: qrCode.businessId.businessName,
-        businessType: qrCode.businessId.businessType,
-        location: qrCode.location
+        businessName: qrCode.businessId ? qrCode.businessId.businessName : null,
+        businessType: qrCode.businessId ? qrCode.businessId.businessType : null,
+        location: qrCode.location,
+        isMapped: qrCode.isMapped
       }
     });
   } catch (error) {
