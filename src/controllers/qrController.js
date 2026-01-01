@@ -195,56 +195,6 @@ exports.getUnmappedQRCodes = async (req, res) => {
   }
 }
 
-    // Verify business exists
-    const business = await Business.findById(businessId);
-    if (!business) {
-      return res.status(404).json({
-        success: false,
-        message: 'Business not found'
-      });
-    }
-
-    // Check authorization
-    if (req.userType === 'business' && req.business._id.toString() !== businessId) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to generate QR code for this business'
-      });
-    }
-
-    // Generate unique QR ID
-    const qrId = uuidv4();
-
-    // Create target URL (where customers will open the feedback form)
-    const customerBase = process.env.CUSTOMER_APP_URL || 'https://senditbox.app';
-    const qrData = `${customerBase.replace(/\/$/, '')}/feedback/${qrId}`;
-    const qrCodeUrl = await qrcode.toDataURL(qrData);
-
-    // Save QR code to database (include targetUrl for clarity)
-    const newQRCode = await QRCode.create({
-      qrId,
-      businessId,
-      qrCodeUrl,
-      targetUrl: qrData,
-      location: location || 'Main Location',
-      description
-    });
-
-    res.status(201).json({
-      success: true,
-      data: newQRCode,
-      link: qrData
-    });
-  } catch (error) {
-    console.error('Generate QR code error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate QR code',
-      error: error.message
-    });
-  }
-};
-
 // @desc    Get QR code details by QR ID
 // @route   GET /api/qr/:qrId
 // @access  Public (needed for customer app)
