@@ -105,7 +105,7 @@ exports.getAllBusinesses = async (req, res) => {
     }
 
     const businesses = await Business.find(query)
-      .select('-password')
+      .select('businessName ownerName email createdAt isVerified verificationCode')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
