@@ -154,6 +154,40 @@ Content-Type: application/json
 }
 ```
 
+### Generate QR Codes in Bulk (Unmapped)
+```http
+POST /qr/admin/bulk-generate
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "count": 50,
+  "batchName": "Restaurant Chain A"
+}
+Response: Array of unmapped QR code objects with qrIds
+```
+
+### Map QR Codes to Business
+```http
+POST /qr/admin/map-to-business
+Authorization: Bearer <admin_token>
+Content-Type: application/json
+
+{
+  "qrIds": ["uuid-1", "uuid-2", "uuid-3"],
+  "businessId": "business_id_here",
+  "location": "Front Entrance"
+}
+Response: { mapped: 3, failed: 0 }
+```
+
+### Get Unmapped QR Codes
+```http
+GET /qr/admin/unmapped
+Authorization: Bearer <admin_token>
+Response: Array of unmapped QR code objects
+```
+
 ### Get QR Codes for Business
 ```http
 GET /qr/business/:businessId

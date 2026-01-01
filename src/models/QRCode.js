@@ -11,7 +11,11 @@ const qrCodeSchema = new mongoose.Schema({
   businessId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Business',
-    required: [true, 'Business ID is required']
+    default: null
+  },
+  isMapped: {
+    type: Boolean,
+    default: false
   },
   qrCodeUrl: {
     type: String,

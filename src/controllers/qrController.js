@@ -42,6 +42,191 @@ exports.generateQRCode = async (req, res) => {
       qrCodeUrl,
       targetUrl: qrData,
       location: location || 'Main Location',
+      description,
+      isMapped: true,
+      isActive: true
+    });
+
+    res.status(201).json({
+      success: true,
+      data: newQRCode,
+      link: qrData
+    });
+  } catch (error) {
+    console.error('Generate QR code error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate QR code',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Generate QR codes in bulk (unmapped)
+// @route   POST /api/qr/bulk-generate
+// @access  Admin only
+exports.bulkGenerateQRCodes = async (req, res) => {
+  try {
+    const { count, batchName } = req.body;
+
+    if (!count || count < 1 || count > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Count must be between 1 and 100'
+      });
+    }
+
+    const customerBase = process.env.CUSTOMER_APP_URL || 'https://senditbox.app';
+    const createdQRs = [];
+
+    // Generate QR codes
+    for (let i = 0; i < count; i++) {
+      const qrId = uuidv4();
+      const qrData = `${customerBase.replace(/\/$/, '')}/feedback/${qrId}`;
+      const qrCodeUrl = await qrcode.toDataURL(qrData);
+
+      const newQRCode = await QRCode.create({
+        qrId,
+        businessId: null,
+        qrCodeUrl,
+        targetUrl: qrData,
+        location: batchName || `Unmapped QR`,
+        description: `Bulk generated QR - ${batchName || 'Batch'}`,
+        isMapped: false,
+        isActive: true
+      });
+
+      createdQRs.push(newQRCode);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully generated ${count} QR codes`,
+      count: createdQRs.length,
+      data: createdQRs
+    });
+  } catch (error) {
+    console.error('Bulk generate QR codes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate QR codes in bulk',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Map unmapped QR codes to a business
+// @route   POST /api/qr/map-to-business
+// @access  Admin only
+exports.mapQRCodesToBusiness = async (req, res) => {
+  try {
+    const { qrIds, businessId, location } = req.body;
+
+    if (!Array.isArray(qrIds) || qrIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'qrIds must be a non-empty array'
+      });
+    }
+
+    // Verify business exists
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found'
+      });
+    }
+
+    // Map QR codes to business
+    const result = await QRCode.updateMany(
+      { qrId: { $in: qrIds }, isMapped: false },
+      {
+        $set: {
+          businessId,
+          isMapped: true,
+          location: location || 'Main Location'
+        }
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No unmapped QR codes found with the provided IDs'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully mapped ${result.modifiedCount} QR codes to ${business.businessName}`,
+      mapped: result.modifiedCount,
+      failed: result.matchedCount - result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Map QR codes to business error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to map QR codes',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Get unmapped QR codes
+// @route   GET /api/qr/unmapped
+// @access  Admin only
+exports.getUnmappedQRCodes = async (req, res) => {
+  try {
+    const qrCodes = await QRCode.find({ isMapped: false, businessId: null }).sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: qrCodes.length,
+      data: qrCodes
+    });
+  } catch (error) {
+    console.error('Get unmapped QR codes error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get unmapped QR codes',
+      error: error.message
+    });
+  }
+}
+
+    // Verify business exists
+    const business = await Business.findById(businessId);
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found'
+      });
+    }
+
+    // Check authorization
+    if (req.userType === 'business' && req.business._id.toString() !== businessId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to generate QR code for this business'
+      });
+    }
+
+    // Generate unique QR ID
+    const qrId = uuidv4();
+
+    // Create target URL (where customers will open the feedback form)
+    const customerBase = process.env.CUSTOMER_APP_URL || 'https://senditbox.app';
+    const qrData = `${customerBase.replace(/\/$/, '')}/feedback/${qrId}`;
+    const qrCodeUrl = await qrcode.toDataURL(qrData);
+
+    // Save QR code to database (include targetUrl for clarity)
+    const newQRCode = await QRCode.create({
+      qrId,
+      businessId,
+      qrCodeUrl,
+      targetUrl: qrData,
+      location: location || 'Main Location',
       description
     });
 
