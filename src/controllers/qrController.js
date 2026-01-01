@@ -121,6 +121,8 @@ exports.bulkGenerateQRCodes = async (req, res) => {
 exports.mapQRCodesToBusiness = async (req, res) => {
   try {
     const { qrIds, businessId, location } = req.body;
+    
+    console.log('MAP QR DEBUG:', { qrIds, businessId, location });
 
     if (!Array.isArray(qrIds) || qrIds.length === 0) {
       return res.status(400).json({
@@ -138,6 +140,8 @@ exports.mapQRCodesToBusiness = async (req, res) => {
       });
     }
 
+    console.log('Business found:', business.businessName);
+
     // Map QR codes to business
     const result = await QRCode.updateMany(
       { qrId: { $in: qrIds } },
@@ -149,6 +153,8 @@ exports.mapQRCodesToBusiness = async (req, res) => {
         }
       }
     );
+
+    console.log('Update result:', result);
 
     if (result.matchedCount === 0) {
       return res.status(404).json({
