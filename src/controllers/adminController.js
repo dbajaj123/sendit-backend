@@ -393,6 +393,7 @@ exports.getAllQRCodes = async (req, res) => {
     if (businessId) query.businessId = businessId;
 
     const qrs = await QRCode.find(query)
+      .populate('businessId', 'businessName')
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip((page - 1) * limit);
