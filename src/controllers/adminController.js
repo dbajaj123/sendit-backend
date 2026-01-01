@@ -105,7 +105,7 @@ exports.getAllBusinesses = async (req, res) => {
     }
 
     const businesses = await Business.find(query)
-      .select('businessName ownerName email createdAt isVerified verificationCode')
+      .select('businessName ownerName email phone address businessType createdAt isVerified isActive verificationCode')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -258,7 +258,7 @@ exports.getSystemStats = async (req, res) => {
 
     // Get recent businesses
     const recentBusinesses = await Business.find()
-      .select('businessName ownerName email createdAt isVerified verificationCode')
+      .select('businessName ownerName email phone createdAt isVerified verificationCode')
       .sort({ createdAt: -1 })
       .limit(5);
 
