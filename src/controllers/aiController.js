@@ -483,8 +483,15 @@ ${JSON.stringify(feedbackForCategorization, null, 2)}`;
       }
     });
 
+    // Calculate total counts from matrix
+    const matrixCounts = {
+      complaint: (matrix.services.complaint || 0) + (matrix.staff.complaint || 0) + (matrix.product.complaint || 0),
+      suggestion: (matrix.services.suggestion || 0) + (matrix.staff.suggestion || 0) + (matrix.product.suggestion || 0),
+      feedback: (matrix.services.feedback || 0) + (matrix.staff.feedback || 0) + (matrix.product.feedback || 0)
+    };
+
     const categoriesForReport = {
-      counts: categoryCounts,
+      counts: matrixCounts,
       avgSentiment: categoryAvgSent,
       matrix: matrix,
       scores: (typeof parsedCategoryScoresForReport !== 'undefined' && parsedCategoryScoresForReport) ? parsedCategoryScoresForReport : categoryScores
