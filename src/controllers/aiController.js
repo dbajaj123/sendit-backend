@@ -75,6 +75,25 @@ exports.analyzeNow = async function(req,res,next){
       return 'feedback';
     }
 
+    function inferCategory(text){
+      const t = (text||'').toLowerCase();
+      const serviceKeywords = ['service','wait','waiting','queue','slow','fast','time','delivery','order','bill','billing','check','payment','cleanliness','clean','dirty','hygiene'];
+      const staffKeywords = ['staff','waiter','server','employee','worker','manager','rude','friendly','helpful','polite','attitude','behavior','attentive'];
+      const productKeywords = ['food','dish','meal','taste','flavor','quality','fresh','cold','hot','portion','size','menu','drink','beverage','ingredient','price','expensive','cheap','value'];
+      
+      let serviceScore = 0, staffScore = 0, productScore = 0;
+      serviceKeywords.forEach(k => { if(t.includes(k)) serviceScore++; });
+      staffKeywords.forEach(k => { if(t.includes(k)) staffScore++; });
+      productKeywords.forEach(k => { if(t.includes(k)) productScore++; });
+      
+      const max = Math.max(serviceScore, staffScore, productScore);
+      if(max === 0) return 'services'; // default to services if no keywords match
+      if(serviceScore === max) return 'services';
+      if(staffScore === max) return 'staff';
+      if(productScore === max) return 'product';
+      return 'services';
+    }
+
     const paramKeywords = {
       quality: ['quality','taste','flavor','undercooked','overcooked','cold','hot','fresh','stale','texture','presentation'],
       food: ['food','dish','menu','portion','taste','flavor','ingredients','overcooked','undercooked','spicy','salty','bland'],
@@ -194,6 +213,71 @@ exports.analyzeNow = async function(req,res,next){
     }
 
     try{
+      // Build detailed feedback list for LLM categorization
+      const feedbackForCategorization = items.slice(0, 300).map((item, idx) => {
+        const text = (item.text || item.content || item.message || '').toString();
+        const classification = item.classification || categorizeText(text, item.rating);
+        return {
+          id: idx,
+          text: text.substring(0, 200), // limit text length
+          classification: classification
+        };
+      });
+
+      const categorizationPrompt = `You are analyzing customer feedback for a business. Categorize each feedback item into one of these categories: "services", "staff", or "product".
+
+Categories:
+- "services": anything about service quality, wait times, delivery, ordering process, billing, cleanliness, ambiance, facility
+- "staff": anything about employees, waiters, servers, managers, their behavior, attitude, helpfulness, professionalism
+- "product": anything about food, drinks, menu items, quality, taste, price, portion size, freshness
+
+Return ONLY a JSON object with this structure:
+{
+  "categorizations": [
+    { "id": 0, "category": "services" },
+    { "id": 1, "category": "staff" },
+    ...
+  ]
+}
+
+Feedback items:
+${JSON.stringify(feedbackForCategorization, null, 2)}`;
+
+      let llmCategorizations = null;
+      try {
+        const categorizationText = await summarizeWithOpenAI(categorizationPrompt, { max_tokens: 2000 });
+        if(DEBUG_AI) console.log('LLM categorization output:\n', categorizationText);
+        
+        // Parse the categorization response
+        const findFirstJson = (str) => {
+          if(!str || typeof str !== 'string') return null;
+          const stripped = str.replace(/```[\s\S]*?```/g, m => m.replace(/```/g, ''));
+          const start = stripped.indexOf('{');
+          if(start === -1) return null;
+          let depth = 0;
+          for(let i=start;i<stripped.length;i++){
+            const ch = stripped[i];
+            if(ch === '{') depth++;
+            else if(ch === '}') depth--;
+            if(depth === 0) return stripped.substring(start, i+1);
+          }
+          return null;
+        };
+
+        try {
+          llmCategorizations = JSON.parse(categorizationText);
+        } catch(_) {
+          const jsonText = findFirstJson(categorizationText);
+          if(jsonText) {
+            const sanitized = jsonText.replace(/,\s*([}\]])/g, '$1');
+            llmCategorizations = JSON.parse(sanitized);
+          }
+        }
+      } catch(e) {
+        if(DEBUG_AI) console.error('LLM categorization failed:', e);
+        llmCategorizations = null;
+      }
+
       const sample = texts.slice(0,200).join('\n\n');
       // Request the new categories schema and distribution counts explicitly
       const prompt = `You are an assistant that MUST output STRICT, PARSABLE JSON ONLY (no surrounding markdown). Produce a single JSON object with these keys:\n- "summary": a short 2-4 sentence summary (string)\n- "recommendations": array of objects { "advice": string, "topics": [string], "actions": [string] }\n- "trends": array of { "label": string, "recommendation": string }\n- "categories": { "scores": { "services": { "cleanliness": number, "waiting": number, "time": number, "billing": number }, "product": { "quality": number, "price": number }, "staff": { "behavior": number, "skills": number } }, "distribution": { "complaints": number, "suggestions": number, "feedback": number } }\nDo NOT include raw customer text. Ensure numeric scores are between 0 and 10. Return only the JSON object (compact or pretty-printed). Feedback corpus:\n${sample}`;
@@ -353,13 +437,31 @@ exports.analyzeNow = async function(req,res,next){
     const matrix = {
       services: { complaint: 0, suggestion: 0, feedback: 0 },
       staff: { complaint: 0, suggestion: 0, feedback: 0 },
-      product: { complaint: 0, suggestion: 0, feedback: 0 },
-      general: { complaint: 0, suggestion: 0, feedback: 0 }
+      product: { complaint: 0, suggestion: 0, feedback: 0 }
     };
 
-    items.forEach(it => {
+    // Create a map of LLM categorizations for quick lookup
+    const llmCategoryMap = new Map();
+    if (llmCategorizations && Array.isArray(llmCategorizations.categorizations)) {
+      llmCategorizations.categorizations.forEach(cat => {
+        if (cat.id !== undefined && cat.category) {
+          llmCategoryMap.set(cat.id, cat.category);
+        }
+      });
+    }
+
+    items.forEach((it, idx) => {
+      const text = (it.text || it.content || it.message || '').toString();
       const classification = it.classification || 'feedback';
-      const category = it.category || 'general';
+      let category = it.category;
+      
+      // Priority: 1) LLM categorization, 2) stored category, 3) keyword inference
+      if (llmCategoryMap.has(idx)) {
+        category = llmCategoryMap.get(idx);
+      } else if (!category || category === 'general') {
+        category = inferCategory(text);
+      }
+      
       if (matrix[category] && ['complaint', 'suggestion', 'feedback'].includes(classification)) {
         matrix[category][classification]++;
       }
