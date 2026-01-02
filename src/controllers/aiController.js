@@ -215,29 +215,34 @@ exports.analyzeNow = async function(req,res,next){
     let llmCategorizations = null;
 
     try{
-      // Build detailed feedback list for LLM categorization
+      // Build detailed feedback list for LLM categorization AND classification
       const feedbackForCategorization = items.slice(0, 300).map((item, idx) => {
         const text = (item.text || item.content || item.message || '').toString();
-        const classification = item.classification || categorizeText(text, item.rating);
         return {
           id: idx,
-          text: text.substring(0, 200), // limit text length
-          classification: classification
+          text: text.substring(0, 200) // limit text length
         };
       });
 
-      const categorizationPrompt = `You are analyzing customer feedback for a business. Categorize each feedback item into one of these categories: "services", "staff", or "product".
+      const categorizationPrompt = `You are analyzing customer feedback for a business. For each feedback item:
+1. Categorize into: "services", "staff", or "product"
+2. Classify as: "complaint", "suggestion", or "feedback"
 
 Categories:
-- "services": anything about service quality, wait times, delivery, ordering process, billing, cleanliness, ambiance, facility
-- "staff": anything about employees, waiters, servers, managers, their behavior, attitude, helpfulness, professionalism
-- "product": anything about food, drinks, menu items, quality, taste, price, portion size, freshness
+- "services": service quality, wait times, delivery, ordering, billing, cleanliness, ambiance, facility
+- "staff": employees, waiters, servers, managers, behavior, attitude, helpfulness, professionalism
+- "product": food, drinks, menu items, quality, taste, price, portion size, freshness
 
-Return ONLY a JSON object with this structure:
+Classifications:
+- "complaint": negative feedback, problems, dissatisfaction, criticism
+- "suggestion": recommendations, ideas for improvement, wishes, requests
+- "feedback": neutral or positive comments, praise, general observations
+
+Return ONLY a JSON object:
 {
   "categorizations": [
-    { "id": 0, "category": "services" },
-    { "id": 1, "category": "staff" },
+    { "id": 0, "category": "services", "classification": "complaint" },
+    { "id": 1, "category": "staff", "classification": "feedback" },
     ...
   ]
 }
@@ -245,7 +250,6 @@ Return ONLY a JSON object with this structure:
 Feedback items:
 ${JSON.stringify(feedbackForCategorization, null, 2)}`;
 
-      let llmCategorizations = null;
       try {
         const categorizationText = await summarizeWithOpenAI(categorizationPrompt, { max_tokens: 2000 });
         if(DEBUG_AI) console.log('LLM categorization output:\n', categorizationText);
@@ -442,22 +446,32 @@ ${JSON.stringify(feedbackForCategorization, null, 2)}`;
       product: { complaint: 0, suggestion: 0, feedback: 0 }
     };
 
-    // Create a map of LLM categorizations for quick lookup
+    // Create maps for LLM categorizations and classifications for quick lookup
     const llmCategoryMap = new Map();
+    const llmClassificationMap = new Map();
     if (llmCategorizations && Array.isArray(llmCategorizations.categorizations)) {
       llmCategorizations.categorizations.forEach(cat => {
-        if (cat.id !== undefined && cat.category) {
-          llmCategoryMap.set(cat.id, cat.category);
+        if (cat.id !== undefined) {
+          if (cat.category) llmCategoryMap.set(cat.id, cat.category);
+          if (cat.classification) llmClassificationMap.set(cat.id, cat.classification);
         }
       });
     }
 
     items.forEach((it, idx) => {
       const text = (it.text || it.content || it.message || '').toString();
-      const classification = it.classification || 'feedback';
-      let category = it.category;
+      const rating = (it.rating != null) ? Number(it.rating) : null;
       
-      // Priority: 1) LLM categorization, 2) stored category, 3) keyword inference
+      // Determine classification: 1) LLM, 2) stored, 3) inferred from text
+      let classification = it.classification;
+      if (llmClassificationMap.has(idx)) {
+        classification = llmClassificationMap.get(idx);
+      } else if (!classification || !['complaint', 'feedback', 'suggestion'].includes(classification)) {
+        classification = categorizeText(text, rating);
+      }
+      
+      // Determine category: 1) LLM, 2) stored, 3) keyword inference
+      let category = it.category;
       if (llmCategoryMap.has(idx)) {
         category = llmCategoryMap.get(idx);
       } else if (!category || category === 'general') {
