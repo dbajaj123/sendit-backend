@@ -349,9 +349,26 @@ exports.analyzeNow = async function(req,res,next){
 
     // `trends` already assembled above (either local or Gemini-assisted)
 
+    // Build classification-category matrix (complaints/suggestions/feedback vs services/staff/product)
+    const matrix = {
+      services: { complaint: 0, suggestion: 0, feedback: 0 },
+      staff: { complaint: 0, suggestion: 0, feedback: 0 },
+      product: { complaint: 0, suggestion: 0, feedback: 0 },
+      general: { complaint: 0, suggestion: 0, feedback: 0 }
+    };
+
+    items.forEach(it => {
+      const classification = it.classification || 'feedback';
+      const category = it.category || 'general';
+      if (matrix[category] && ['complaint', 'suggestion', 'feedback'].includes(classification)) {
+        matrix[category][classification]++;
+      }
+    });
+
     const categoriesForReport = {
       counts: categoryCounts,
       avgSentiment: categoryAvgSent,
+      matrix: matrix,
       scores: (typeof parsedCategoryScoresForReport !== 'undefined' && parsedCategoryScoresForReport) ? parsedCategoryScoresForReport : categoryScores
     };
 
