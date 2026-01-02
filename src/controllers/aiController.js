@@ -212,6 +212,8 @@ exports.analyzeNow = async function(req,res,next){
       summaries[tf] = s || { summary: '', recommendations: [], trends: [], raw: null };
     }
 
+    let llmCategorizations = null;
+
     try{
       // Build detailed feedback list for LLM categorization
       const feedbackForCategorization = items.slice(0, 300).map((item, idx) => {
