@@ -43,6 +43,16 @@ const feedbackSchema = new mongoose.Schema({
     min: 1,
     max: 5
   },
+  classification: {
+    type: String,
+    enum: ['feedback', 'complaint', 'suggestion'],
+    default: 'feedback'
+  },
+  category: {
+    type: String,
+    enum: ['services', 'product', 'staff', 'general'],
+    default: 'general'
+  },
   tags: [{
     type: String,
     trim: true

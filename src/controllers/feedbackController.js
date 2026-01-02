@@ -85,7 +85,7 @@ exports.uploadVoice = (req, res, next) => {
 // @access  Public
 exports.submitTextFeedback = async (req, res) => {
   try {
-    const { qrId, content, customerName, customerContact, rating } = req.body;
+    const { qrId, content, customerName, customerContact, rating, classification, category } = req.body;
 
     // Validate required fields
     if (!qrId || !content) {
@@ -119,7 +119,9 @@ exports.submitTextFeedback = async (req, res) => {
       content,
       customerName,
       customerContact,
-      rating
+      rating,
+      classification: classification || 'feedback',
+      category: category || 'general'
     });
 
     // Update QR code feedback count
@@ -148,7 +150,7 @@ exports.submitTextFeedback = async (req, res) => {
 // @access  Public
 exports.submitVoiceFeedback = async (req, res) => {
   try {
-    const { qrId, customerName, customerContact, rating, voiceDuration } = req.body;
+    const { qrId, customerName, customerContact, rating, voiceDuration, classification, category } = req.body;
 
     // Validate required fields
     if (!qrId) {
@@ -192,7 +194,9 @@ exports.submitVoiceFeedback = async (req, res) => {
       voiceDuration: voiceDuration || 0,
       customerName,
       customerContact,
-      rating
+      rating,
+      classification: classification || 'feedback',
+      category: category || 'general'
     });
 
     // Update QR code feedback count

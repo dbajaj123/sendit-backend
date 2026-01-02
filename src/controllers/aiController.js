@@ -85,8 +85,12 @@ exports.analyzeNow = async function(req,res,next){
     items.forEach(it => {
       const t = (it.text || it.content || it.message || '').toString();
       const r = (it.rating != null) ? Number(it.rating) : null;
-      const cat = categorizeText(t, r);
-      categoriesText[cat].push({ text: t, rating: r });
+      // Use stored classification if available, otherwise infer from text and rating
+      const storedClass = it.classification;
+      const cat = storedClass && ['complaint', 'feedback', 'suggestion'].includes(storedClass) 
+        ? storedClass 
+        : categorizeText(t, r);
+      categoriesText[cat].push({ text: t, rating: r, category: it.category || 'general' });
     });
 
     const categoryScores = { complaint: {}, feedback: {}, suggestion: {} };
